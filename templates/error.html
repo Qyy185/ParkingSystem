@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>出错了 · 地下停车场</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap">
+  <section class="card">
+    <h2>{{ code }}</h2>
+    <p class="tip">{{ message }}</p>
+    <a class="btn" href="{{ url_for('index') }}">返回首页</a>
+  </section>
+</div>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>地下停车场 · 管理后台</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap wide">
+  <header class="head">
+    <h1>地下停车场 · 管理后台</h1>
+    <p class="sub">车位总览 / 进出场流水 / 营收统计</p>
+  </header>
+
+  <section class="card">
+    <div class="stat-row">
+      <div class="stat"><span class="num">{{ spots|length }}</span><span class="lbl">总车位</span></div>
+      <div class="stat"><span class="num free">{{ free_count }}</span><span class="lbl">空闲</span></div>
+      <div class="stat"><span class="num busy">{{ spots|length - free_count }}</span><span class="lbl">已占用</span></div>
+      <div class="stat"><span class="num money">{{ revenue }}</span><span class="lbl">今日营收(元)</span></div>
+    </div>
+
+    <div class="grid">
+      {% for s in spots %}
+      <div class="cell {{ 'is-free' if s.status == 'free' else 'is-busy' }}">
+        <span class="cell-id">{{ s.id }}</span>
+        <span class="cell-plate">{{ s.plate if s.plate else '空闲' }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>进出场流水</h2>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>时间</th><th>车牌</th><th>事件</th><th>车位</th><th>时长</th><th>金额</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if logs %}
+            {% for log in logs %}
+            <tr>
+              <td>{{ log.time }}</td>
+              <td class="plate">{{ log.plate }}</td>
+              <td>{{ '入场' if log.type == 'in' else ('缴费' if log.type == 'pay' else log.type) }}</td>
+              <td>{{ log.spot }}</td>
+              <td>{{ log.minutes ~ ' 分钟' if log.minutes is defined else '' }}</td>
+              <td>{{ log.fee ~ ' 元' if log.fee is defined else '' }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="6" class="tip">暂无记录</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <a href="{{ url_for('index') }}">← 返回车主端</a>
+  </footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,30 @@
+@echo off
+rem ============================================================
+rem   地下停车场管理系统（纯 Python 版）启动器
+rem   双击本文件即可。会自动用项目自带的 .venv 解释器。
+rem ============================================================
+
+cd /d "%~dp0"
+set "PY=%~dp0.venv\Scripts\python.exe"
+
+if not exist "%PY%" (
+  echo [错误] 找不到 Python 解释器：
+  echo        %PY%
+  echo.
+  echo        需要先创建 .venv 环境。在项目目录执行：
+  echo        E:\conda\envs\python-demo\python.exe -m venv .venv
+  echo        .venv\Scripts\python.exe -m pip install flask
+  echo.
+  pause
+  exit /b 1
+)
+
+echo.
+echo   正在启动...（关闭本窗口即停止服务）
+echo.
+
+"%PY%" app.py
+
+echo.
+echo 服务已停止。
+pause

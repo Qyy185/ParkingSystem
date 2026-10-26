@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>地下停车场 · 车主端</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <h1>地下停车场</h1>
+    <p class="sub">车主端 · 输入车牌号入场</p>
+  </header>
+
+  {% if msg %}
+  <div class="alert alert-err">{{ msg }}</div>
+  {% endif %}
+  {% if ok_msg %}
+  <div class="alert alert-ok">{{ ok_msg }}</div>
+  {% endif %}
+  {% if fee %}
+  <div class="alert alert-fee">
+    应付 <strong>{{ fee }}</strong> 元 · 停放 {{ minutes }} 分钟
+    <form method="post" action="{{ url_for('pay') }}">
+      <button class="btn primary" type="submit">确认缴费</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <section class="card">
+    <div class="stat-row">
+      <div class="stat"><span class="num">{{ spots|length }}</span><span class="lbl">总车位</span></div>
+      <div class="stat"><span class="num free">{{ free_count }}</span><span class="lbl">空闲</span></div>
+      <div class="stat"><span class="num busy">{{ spots|length - free_count }}</span><span class="lbl">已占用</span></div>
+    </div>
+
+    <div class="grid">
+      {% for s in spots %}
+      <div class="cell {{ 'is-free' if s.status == 'free' else 'is-busy' }}">
+        <span class="cell-id">{{ s.id }}</span>
+        <span class="cell-plate">{{ s.plate if s.plate else '空闲' }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>入场</h2>
+    <form method="post" action="{{ url_for('entry') }}">
+      <div class="row">
+        <input class="input" type="text" name="plate" placeholder="车牌号，如 黑A12345"
+               maxlength="10" autocomplete="off" required>
+        <button class="btn primary" type="submit">入场</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>出场缴费</h2>
+    <form method="post" action="{{ url_for('exit') }}">
+      <div class="row">
+        <input class="input" type="text" name="plate" placeholder="要出场的车牌号"
+               maxlength="10" autocomplete="off" required>
+        <button class="btn" type="submit">查询费用</button>
+      </div>
+    </form>
+  </section>
+
+  <footer class="foot">停车 30 分钟内免费 · 之后 5 元/小时 · 每天封顶 40 元</footer>
+</div>
+</body>
+</html>
