@@ -1,163 +1,211 @@
-# 地下停车场管理系统（纯 Python 版）
+# 地下停车场管理系统
 
-> 项目位置：`C:\Users\36151\Desktop\01-项目代码\停车场管理系统-py\`
-> **零 JavaScript**：没有 `.js` 文件，模板里没有 `<script>` 标签。
-> 页面由 Python 的 Jinja2 模板渲染，交互靠 HTML 表单提交。
+> 一个用 **Python + Flask** 写的地下停车场管理系统，**零 JavaScript**。
+> 车主用手机输入车牌就能入场、查费、缴费放行；管理员在电脑上看车位总览、流水和营收。
+
+[![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+---
+
+## 这是什么
+
+一个**完整可跑的小型业务系统**，覆盖停车场最核心的闭环：
+
+```
+入场 ──→ 分配车位 ──→ 在场计费 ──→ 缴费放行 ──→ 记账 ──→ 后台统计
+```
+
+**5 个核心业务函数全部独立实现**：
+
+| 函数 | 职责 | 关键点 |
+|---|---|---|
+| `find_free_spot(spots)` | 车位分配 | 遍历找第一个 `status == "free"` 的 |
+| `calc_fee(entryTime)` | 分级计费 | 30 分钟免费 → 5 元/小时 → 每天封顶 40 |
+| `handle_entry(plate)` | 入场 | 分配车位 + 记时间戳 + 存盘 + 记流水 |
+| `handle_exit(plate)` | 出场计费 | **只算钱，不放行** |
+| `handle_pay(plate)` | 缴费放行 | 释放车位 + 存盘 + 记流水 |
 
 ---
 
 ## 快速开始
 
-### 1. 打开（PyCharm）
+```bash
+# 1. 建虚拟环境
+python -m venv .venv
 
-**File → Open** → 选文件夹：
-```
-C:\Users\36151\Desktop\01-项目代码\停车场管理系统-py
-```
+# 2. 装依赖
+.venv/Scripts/python.exe -m pip install -r requirements.txt   # Windows
+# source .venv/bin/activate && pip install -r requirements.txt  # macOS/Linux
 
-右下角确认显示 `Python 3.13 (parking-py)` 或类似（已自动配好 venv）。
-
-### 2. 跑起来
-
-**方式 A**：双击项目里的 `启动.bat`
-
-**方式 B**：PyCharm 底部「终端」（`Alt + F12`）：
-```bat
-.venv\Scripts\python.exe app.py
+# 3. 启动
+.venv/Scripts/python.exe app.py
 ```
 
-**方式 C**：右键 `app.py` → Run 'app'
-
-### 3. 看效果
+打开浏览器：
 
 | 页面 | 地址 |
 |---|---|
 | 车主端 | `http://localhost:3000` |
 | 管理后台 | `http://localhost:3000/admin` |
-| 真手机 | `http://172.21.95.217:3000`（手机连同一 WiFi） |
+| 手机访问 | `http://<你的局域网IP>:3000` |
 
-**应该能看到 16 个绿色格子**（A区 B区 各 8 个）。
+**Windows 用户可以直接双击 `启动.bat`。**
 
 ---
 
-## ⭐ 你的任务：3 个 TODO 函数
+## 特色一：零 JavaScript
 
-全在 **`parking.py`** 里。
+整个项目**没有一个 `.js` 文件，模板里没有一个 `<script>` 标签**。
 
-| 状态 | 函数 | 干什么 |
-|---|---|---|
-| ✅ **你写完了** | `find_free_spot(spots)` | 找第一个空车位 |
-| ✅ **你写完了** | `calc_fee(entryTime)` | 算钱 |
-| ⬜ **待写** | `handle_entry(plate)` | 入场：分配车位、记时间、存数据、记流水 |
-| ⬜ **待写** | `handle_exit(plate)` | 出场算钱（**先不放行**） |
-| ⬜ **待写** | `handle_pay(plate)` | 缴费：释放车位、记流水 |
+```
+浏览器提交表单 → Flask 收到 → 调用业务函数 → Jinja2 渲染整页 → 重定向回来
+```
 
-每个函数上面都写了：做什么、分几步、返回什么、**⚠️ 提示**。
+页面上的 16 个车位格子，是 Jinja2 循环渲染的：
 
-### 骨架（填空自己填）
+```html
+{% for s in spots %}
+<div class="cell {{ 'is-free' if s.status == 'free' else 'is-busy' }}">
+    <span class="cell-id">{{ s.id }}</span>
+    <span class="cell-plate">{{ s.plate if s.plate else '空闲' }}</span>
+</div>
+{% endfor %}
+```
+
+**好处**：整个请求链路都在 Python 里，看得懂、追得完。
+**代价**：每次提交整个页面刷新，交互体验不如 SPA。这是取舍，不是最优解。
+
+---
+
+## 特色二：两段式出场流程
+
+`handle_exit` **只算钱，不释放车位**；`handle_pay` 才真正放行。
+
+这对应真实停车场的流程，也给支付接口留了扩展路径：
+
+```
+handle_exit  →  算钱、返回金额、状态不变
+handle_pay   →  用户确认付款后，才把车位释放
+```
+
+将来接微信支付，就是「算钱 → 用户付 → 放行」，两个函数都不用重写。
+
+---
+
+## 特色三：数据持久化与流水审计
+
+车位状态存在 `data/parking.json`，进出场的每一条流水存在 `data/logs.json`。
 
 ```python
-def handle_entry(plate):
-    spots = get_spots()
-    spot = find_free_spot(spots)
-    if spot is None:
-        return {"ok": False, "msg": "车位已满"}
-
-    # ↓↓↓ 这里填：改车位状态、存数据、记流水 ↓↓↓
-
-    return {"ok": True, "spot": spot, "entryTime": spot["entryTime"]}
+# store.py —— 异常兜底，文件坏了也不能让服务挂掉
+def read_all():
+    try:
+        with open(FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
 ```
 
-### 验证
+流水表的字段是**数据契约**——每个字段都有下游消费者：
 
-```bat
-.venv\Scripts\python.exe tools\selftest.py
-```
-
-期望 `12 / 12 通过`。
-
-单个函数这样测：
-
-```bat
-.venv\Scripts\python.exe -c "import parking; print(parking.handle_entry('黑A12345'))"
-```
-
----
-
-## 🐍 这个项目会教你的东西
-
-| 文件 | 你学到什么 |
-|---|---|
-| `app.py` | Flask 路由、**表单 POST/重定向/GET** 模式、Jinja2 模板渲染 |
-| `parking.py` | 业务逻辑分层、字典操作、边界情况处理 |
-| `store.py` | 文件读写、JSON 序列化、异常兜底 |
-| `templates/` | **Jinja2 模板语法**：`{% for %}` 循环、`{{ }}` 变量、`{% if %}` 条件 |
-| `static/` | 纯 CSS（响应式布局、Grid 布局） |
-
-**⚠️ 三个 Python 语法要点**（你已经踩过）：
-
-1. `def` / `if` / `for` 后面**必须有冒号**，函数体**缩进 4 空格**
-2. 取字典值用 `spot["id"]`，**不是** `spot.id`
-3. 判断空用 `is None`，**不是** `== None`
-
----
-
-## 📂 目录结构
-
-```
-停车场管理系统-py/
-├── 📄 app.py            ← Flask 服务（已通，不用改）
-├── 🐍 parking.py        ← ★ 你的战场：3 个 TODO
-├── 🐍 store.py          ← 数据读写（已通，不用改）
-├── 📁 templates/        ← Jinja2 模板（已通，不用改）
-│   ├── index.html         车主端
-│   ├── admin.html         管理后台
-│   └── error.html         404 页
-├── 📁 static/
-│   └── style.css       ← 纯 CSS
-├── 📁 data/             ← 数据文件（自动生成）
-├── 📁 tools/
-│   ├── selftest.py     ← 自检（12 项）
-│   └── convert_launcher.ps1
-├── 📄 requirements.txt
-├── 📄 启动.bat          ← 双击也能起服务
-└── 📁 .venv/            ← 独立 Python 环境
-```
-
----
-
-## 🐍 Python vs JavaScript 速查
-
-| 干什么 | JavaScript | Python |
+| 字段 | 用途 | 谁在用 |
 |---|---|---|
-| 打印 | `console.log(x)` | `print(x)` |
-| 变量 | `let x = 1` | `x = 1` |
-| 数组 | `const a = [1,2]` | `a = [1, 2]` |
-| 取元素 | `a[0]` | `a[0]` |
-| 长度 | `a.length` | `len(a)` |
-| 加元素 | `a.push(x)` | `a.append(x)` |
-| 取对象属性 | `o.id` | `o["id"]` ⚠️ |
-| 函数 | `function f(x) { }` | `def f(x):` ⚠️**有冒号** |
-| 判断 | `if (x) { }` | `if x:` ⚠️**没括号** |
-| 遍历 | `arr.forEach(function(x){})` | `for x in arr:` |
-| 空值 | `null` / `undefined` | `None` |
-| 逻辑与/或 | `&&` / `\|\|` | `and` / `or` |
-| 不等于 | `!==` | `!=` |
-| 整除 | `Math.floor(a/b)` | `a // b` |
-| 向上取整 | `Math.ceil(a)` | `import math; math.ceil(a)` |
-| 注释 | `//` | `#` |
-| 字符串拼接 | `'a' + b` | `f'a{b}'` 或 `str(b)` |
-| 导模块 | `require('x')` | `import x` / `from x import y` |
+| `type` | 区分入场 / 缴费 | `today_revenue()` 筛出缴费记录算营收 |
+| `plate` | 车牌 | 按车牌追溯记录 |
+| `spot` | 车位号 | 追溯车位历史 |
+| `minutes` | 停放时长 | 统计平均停放时长 |
+| `fee` | 金额 | 后台显示 + 营收累加 |
 
 ---
 
-## 💡 写不下去的时候
+## 项目结构
 
-1. **看报错**：红色那几行，**最下面一行才是真正的错误**
-2. **打印中间值**：在函数里加 `print("spots =", spots)`
-3. **PyCharm 划波浪线不用管**——静态检查的抱怨，运行才是真的
-4. **断点调试**：函数那行左侧点一下放红点，右键 → Debug，看左边变量面板
+```
+.
+├── app.py              # Flask 服务：路由 + 表单处理
+├── parking.py          # ★ 业务逻辑层（核心）
+├── store.py            # 数据读写层
+├── templates/          # Jinja2 模板
+│   ├── index.html      #   车主端
+│   ├── admin.html      #   管理后台
+│   └── error.html      #   404 页
+├── static/
+│   └── style.css       # 纯 CSS（响应式 + Grid 布局）
+├── data/               # 运行时生成的数据文件
+├── tools/
+│   ├── selftest.py     # 12 项自动化自检
+│   └── convert_launcher.ps1
+├── requirements.txt
+└── 启动.bat
+```
+
+**分层设计**：
+
+| 层 | 文件 | 职责 |
+|---|---|---|
+| 数据层 | `store.py` | 只读写文件，不含业务逻辑 |
+| 业务层 | `parking.py` | 纯逻辑，不碰 HTTP |
+| 表现层 | `app.py` + `templates/` | 收请求、调逻辑、渲染页面 |
 
 ---
 
-*环境已配好，12/12 自检通过，零 JS。开始写第一个函数吧。*
+## 测试
+
+```bash
+.venv/Scripts/python.exe tools/selftest.py
+```
+
+```
+[PASS] GET / 200
+[PASS] 车主端含标题
+[PASS] 渲染出 16 个车位
+[PASS] 含入场表单
+[PASS] 含出场表单
+[PASS] GET /admin 200
+[PASS] 后台含流水表
+[PASS] GET /static/style.css 200
+[PASS] POST /entry 有响应
+[PASS] POST /entry 空车牌被拦下
+[PASS] 提示信息渲染到页面
+[PASS] 不存在的页面返回 404
+---
+12 / 12 通过
+```
+
+计费规则也逐条验证过：
+
+| 停放时长 | 费用 | 说明 |
+|---|---|---|
+| 10 分钟 | 0 元 | 免费时段内 |
+| 45 分钟 | 5 元 | 超出 15 分钟，向上取整为 1 小时 |
+| 90 分钟 | 5 元 | 超出 60 分钟，计 1 小时 |
+| 2 小时 | 10 元 | 超出 90 分钟，计 2 小时 |
+| 3 天 | 40 元 | 每日封顶 |
+
+> ⚠️ **90 分钟这一档是关键**：它能区分「先减免费时长再取整」和「直接取整」两种实现。
+> 只测 45 分钟的话，两种写法都能蒙对。
+
+---
+
+## 技术栈
+
+- **Python 3.13**（venv 隔离，除 Flask 外零依赖）
+- **Flask 3.1** + **Jinja2** 服务端渲染
+- **纯 CSS** 响应式布局（CSS Grid，媒体查询适配手机）
+- **JSON 文件持久化**
+- **Git 版本管理**
+
+---
+
+## 作者
+
+**邹晔铖** · 齐齐哈尔大学 · 信息与计算科学 · 2027 届
+
+---
+
+## License
+
+MIT
