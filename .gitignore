@@ -4,3 +4,5 @@ __pycache__/
 .idea/
 data/*.json
 tools/_*.txt
+tools/_resume_src/
+tools/_*
