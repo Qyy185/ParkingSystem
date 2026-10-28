@@ -245,6 +245,7 @@ body {
   font-size: 12px;
 }
 .scan-kind.monthly { background: #1d9e75; color: #fff; }
+.scan-kind.member { background: #1d9e75; color: #fff; }
 .scan-kind.temp { background: #ba7517; color: #fff; }
 .scan-kind.none { background: #5f5e5a; color: #fff; }
 
@@ -259,7 +260,8 @@ body {
   font-size: 12px;
 }
 .kind-badge.monthly { background: #e1f5ee; color: #0f6e56; }
-.kind-badge.temp { background: #fdf3e3; color: #854f0b; }
+.kind-badge.yearly { background: #e6f1fb; color: #185fa5; }
+.kind-badge.temp, .kind-badge.temporary { background: #fdf3e3; color: #854f0b; }
 .table td.actions { white-space: nowrap; }
 .table td.actions form { display: inline-block; margin-right: 4px; }
 .table td.actions .btn { height: 28px; padding: 0 10px; font-size: 12px; }
@@ -284,3 +286,64 @@ body {
 }
 .channel-tag.monthly { background: #e1f5ee; color: #0f6e56; }
 .channel-tag.temp { background: #fdf3e3; color: #854f0b; }
+.channel-tag.member { background: #e1f5ee; color: #0f6e56; }
+
+/* ---- 充值页 ---- */
+.plan-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+@media (min-width: 560px) { .plan-grid { grid-template-columns: repeat(2, 1fr); } }
+.plan {
+  display: block;
+  border: 2px solid #dfe1e5;
+  border-radius: 12px;
+  padding: 14px 12px;
+  cursor: pointer;
+  background: #fff;
+  transition: border-color .15s;
+}
+.plan:hover { border-color: #378add; }
+.plan input { display: none; }
+.plan.has-choice { border-color: #378add; background: #f5faff; }
+.plan-name { font-size: 15px; font-weight: 600; color: #1f2329; }
+.plan-desc { font-size: 12px; color: #8a9099; margin-top: 2px; }
+.plan-price { font-size: 22px; font-weight: 600; color: #ba7517; margin-top: 8px; }
+.plan-price small { font-size: 12px; color: #8a9099; font-weight: 400; }
+
+.period-list { display: grid; gap: 8px; margin-bottom: 14px; }
+.period {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 2px solid #dfe1e5;
+  border-radius: 10px;
+  padding: 11px 13px;
+  cursor: pointer;
+  background: #fff;
+}
+.period:hover { border-color: #378add; }
+.period input { display: none; }
+.period.has-choice { border-color: #378add; background: #f5faff; }
+.period-label { flex: 1; font-size: 14px; }
+.period-price { font-size: 16px; font-weight: 600; color: #ba7517; }
+.period-price small { font-size: 11px; color: #8a9099; font-weight: 400; }
+
+.balance-card {
+  background: linear-gradient(135deg, #378add, #185fa5);
+  border-radius: 12px;
+  padding: 16px;
+  color: #fff;
+  margin-bottom: 14px;
+}
+.balance-label { font-size: 12px; opacity: .85; }
+.balance-num { font-size: 30px; font-weight: 600; line-height: 1.25; }
+.balance-meta { font-size: 12px; opacity: .85; margin-top: 4px; }
+
+.recharge-form {
+  display: grid;
+  gap: 10px;
+}
+.recharge-form .input { width: 100%; }

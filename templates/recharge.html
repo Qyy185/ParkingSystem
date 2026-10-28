@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>地下停车场 · 充值</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <h1>充值</h1>
+    <p class="sub">开通月租 / 年租 · 充值后入场不计停车费</p>
+  </header>
+
+  <div class="nav-links">
+    <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
+    <a class="nav-link" href="{{ url_for('scan') }}">扫码入场</a>
+    <a class="nav-link" href="{{ url_for('accounts') }}">账户管理</a>
+  </div>
+
+  {% if msg %}
+  <div class="alert alert-err">{{ msg }}</div>
+  {% endif %}
+  {% if ok_msg %}
+  <div class="alert alert-ok">{{ ok_msg }}</div>
+  {% endif %}
+
+  <!-- 已选套餐后的确认区 -->
+  {% if selected %}
+  <section class="card">
+    <div class="balance-card">
+      <div class="balance-label">本次充值</div>
+      <div class="balance-num">{{ selected.price }} <small>元</small></div>
+      <div class="balance-meta">{{ account_plate }} · {{ selected.label }}</div>
+    </div>
+
+    {% if current %}
+    <div class="alert alert-ok">
+      当前余额 <strong>{{ current.balance }}</strong> 元
+      {% if current.expiresAt %}· 有效期至 {{ current.expiresAt | fmt_date }}{% endif %}
+      <br>充值后余额 <strong>{{ current.balance + selected.price }}</strong> 元
+    </div>
+    {% else %}
+    <div class="alert alert-ok">
+      这辆车还没有账户，充值即开户。
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('recharge_do') }}">
+      <input type="hidden" name="plate" value="{{ account_plate }}">
+      <input type="hidden" name="kind" value="{{ selected.kind }}">
+      <input type="hidden" name="periods" value="{{ selected.periods }}">
+      <div class="row">
+        <button class="btn primary grow" type="submit">确认充值 {{ selected.price }} 元</button>
+      </div>
+    </form>
+    <div class="row scanner-actions">
+      <a class="btn grow" href="{{ url_for('recharge') }}">重新选择</a>
+    </div>
+  </section>
+  {% else %}
+
+  <!-- 第一步：选套餐 -->
+  <section class="card">
+    <h2>第一步 · 选套餐</h2>
+    <form method="post" action="{{ url_for('recharge_select') }}">
+      <div class="row" style="margin-bottom: 14px;">
+        <input class="input" type="text" name="plate" placeholder="车牌号，如 黑A12345"
+               maxlength="12" value="{{ plate }}" autocomplete="off" required>
+      </div>
+
+      <div class="plan-grid">
+        {% for pkg_kind, pkg in packages.items() %}
+        <label class="plan {{ 'has-choice' if pkg_kind == 'monthly' else '' }}">
+          <input type="radio" name="kind" value="{{ pkg_kind }}"
+                 {% if pkg_kind == 'monthly' %}checked{% endif %}>
+          <div class="plan-name">{{ pkg.label }}</div>
+          <div class="plan-desc">按 {{ pkg.unit }}订阅，不计停车费</div>
+          <div class="plan-price">
+            {% if pkg_kind == 'monthly' %}300<small> 元起 / 月</small>{% else %}2700<small> 元 / 年</small>{% endif %}
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+
+      <button class="btn primary" type="submit" style="width: 100%;">下一步</button>
+    </form>
+  </section>
+  {% endif %}
+
+  <!-- 第二步：选档位 -->
+  {% if kind %}
+  <section class="card">
+    <h2>第二步 · 选时长</h2>
+    <form method="post" action="{{ url_for('recharge_select') }}">
+      <input type="hidden" name="plate" value="{{ plate }}">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <div class="period-list">
+        {% for opt in packages[kind].options %}
+        <label class="period {{ 'has-choice' if loop.first else '' }}">
+          <input type="radio" name="periods" value="{{ opt.periods }}"
+                 {% if loop.first %}checked{% endif %}>
+          <span class="period-label">{{ opt.label }}</span>
+          <span class="period-price">{{ opt.price }} <small>元</small></span>
+        </label>
+        {% endfor %}
+      </div>
+      <button class="btn primary" type="submit" style="width: 100%;">下一步</button>
+    </form>
+  </section>
+  {% endif %}
+
+  <section class="card">
+    <h2>套餐说明</h2>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>套餐</th><th>时长</th><th>价格</th><th>折合每月</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>月租</td><td>1 个月</td><td>300 元</td><td>300 元</td></tr>
+          <tr><td>月租</td><td>3 个月</td><td>850 元</td><td>约 283 元</td></tr>
+          <tr><td>月租</td><td>6 个月</td><td>1600 元</td><td>约 267 元</td></tr>
+          <tr><td>月租</td><td>12 个月</td><td>3000 元</td><td>250 元</td></tr>
+          <tr><td>年租</td><td>1 年</td><td>2700 元</td><td>225 元</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="tip">
+      充值金额进入账户余额，有效期自动延长。<br>
+      会员期内入场不计停车费；余额可用于抵扣临停费用。
+    </p>
+  </section>
+
+  <footer class="foot">
+    <a href="{{ url_for('index') }}">← 返回车主端</a>
+    ·
+    <a href="{{ url_for('admin') }}">管理后台</a>
+  </footer>
+</div>
+</body>
+</html>

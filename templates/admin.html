@@ -56,7 +56,7 @@
               <td>{{ '入场' if log.type == 'in' else ('缴费' if log.type == 'pay' else log.type) }}</td>
               <td>{{ log.spot }}</td>
               <td><span class="channel-tag {{ log.channel if log.channel else 'temp' }}">
-                {{ '月租' if log.channel == 'monthly' else '临停' }}</span></td>
+                {{ '会员' if log.channel == 'member' else '临停' }}</span></td>
               <td>{{ log.minutes | fmt_duration if log.minutes is defined else '' }}</td>
               <td>{{ log.fee ~ ' 元' if log.fee is defined else '' }}</td>
             </tr>

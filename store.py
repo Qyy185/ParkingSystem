@@ -15,6 +15,7 @@ DATA_DIR = os.path.join(ROOT, "data")
 FILE = os.path.join(DATA_DIR, "parking.json")
 LOG_FILE = os.path.join(DATA_DIR, "logs.json")
 ACCOUNT_FILE = os.path.join(DATA_DIR, "accounts.json")
+RECHARGE_FILE = os.path.join(DATA_DIR, "recharges.json")
 
 
 def _read_list(path):
@@ -75,6 +76,31 @@ def read_accounts():
 def write_accounts(data):
     """写所有账户。"""
     _write_list(ACCOUNT_FILE, data)
+
+
+# ---------------------------------------------------------
+# 充值流水表（v0.2.2）
+# ---------------------------------------------------------
+# 充值和停车费付款是两条线：这里只记「买套餐」，
+# 停车费的 pay 流水仍然只写在 logs.json 里。
+
+def read_recharges():
+    """读所有充值记录。"""
+    return _read_list(RECHARGE_FILE)
+
+
+def write_recharges(data):
+    """写所有充值记录。"""
+    _write_list(RECHARGE_FILE, data)
+
+
+def add_recharge(entry):
+    """记一笔充值。"""
+    records = read_recharges()
+    record = {"time": now_ms()}
+    record.update(entry)
+    records.append(record)
+    _write_list(RECHARGE_FILE, records)
 
 
 def now_ms():

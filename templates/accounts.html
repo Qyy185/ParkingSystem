@@ -10,8 +10,15 @@
 <div class="wrap wide">
   <header class="head">
     <h1>账户管理</h1>
-    <p class="sub">车牌绑定账户 · 账户只标记月租 / 临停，不涉及付款</p>
+    <p class="sub">长期会员账户（月租 / 年租）· 临停车辆入场自动建临时账号、出场自动删</p>
   </header>
+
+  <div class="nav-links">
+    <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
+    <a class="nav-link" href="{{ url_for('scan') }}">扫码入场</a>
+    <a class="nav-link" href="{{ url_for('recharge') }}">充值</a>
+    <a class="nav-link" href="{{ url_for('admin') }}">管理后台</a>
+  </div>
 
   {% if msg %}
   <div class="alert alert-err">{{ msg }}</div>
@@ -24,19 +31,24 @@
     <div class="stat-row">
       <div class="stat"><span class="num">{{ stats.total }}</span><span class="lbl">账户总数</span></div>
       <div class="stat"><span class="num free">{{ stats.monthly }}</span><span class="lbl">月租</span></div>
-      <div class="stat"><span class="num busy">{{ stats.temporary }}</span><span class="lbl">临停</span></div>
+      <div class="stat"><span class="num free">{{ stats.yearly }}</span><span class="lbl">年租</span></div>
+      <div class="stat"><span class="num busy">{{ stats.temporary }}</span><span class="lbl">临停(在场)</span></div>
+      <div class="stat"><span class="num money">{{ stats.balance }}</span><span class="lbl">余额合计(元)</span></div>
     </div>
+    {% if stats.expired %}
+    <p class="tip">其中 {{ stats.expired }} 个会员账户已过期，按临停计费。</p>
+    {% endif %}
   </section>
 
   <section class="card">
-    <h2>新增账户</h2>
+    <h2>登记长期账户</h2>
     <form method="post" action="{{ url_for('account_add') }}">
       <div class="inline-form">
         <input class="input" type="text" name="plate" placeholder="车牌号，如 黑A12345"
                maxlength="12" autocomplete="off" required>
         <select name="kind">
           <option value="monthly">月租</option>
-          <option value="temporary">临停</option>
+          <option value="yearly">年租</option>
         </select>
         <input class="input" type="text" name="holder" placeholder="车主姓名（选填）"
                maxlength="20" autocomplete="off">
@@ -45,7 +57,10 @@
         <button class="btn primary" type="submit">登记</button>
       </div>
     </form>
-    <p class="tip">车牌已存在时会更新它的类型，不会重复创建。</p>
+    <p class="tip">
+      临停车辆不需要登记 —— 入场时系统自动建临时账号，出场后自动删除。<br>
+      长期账户的余额和有效期通过<a href="{{ url_for('recharge') }}">充值页</a>管理。
+    </p>
   </section>
 
   <section class="card">
@@ -54,8 +69,8 @@
       <table class="table">
         <thead>
           <tr>
-            <th>车牌</th><th>类型</th><th>车主</th><th>备注</th>
-            <th>注册时间</th><th>操作</th>
+            <th>车牌</th><th>类型</th><th>车主</th><th>余额</th>
+            <th>有效期</th><th>备注</th><th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -63,20 +78,25 @@
             {% for acc in accounts %}
             <tr>
               <td class="plate">{{ acc.plate }}</td>
-              <td><span class="kind-badge {{ acc.kind }}">{{ kind_label(acc.kind) }}</span></td>
+              <td>
+                <span class="kind-badge {{ acc.kind }}">{{ kind_label(acc.kind) }}</span>
+                {% if is_expired(acc) %}<span class="kind-badge temp">已过期</span>{% endif %}
+              </td>
               <td>{{ acc.holder or '—' }}</td>
+              <td>{{ acc.balance or 0 }} 元</td>
+              <td>{{ acc.expiresAt | fmt_date }}</td>
               <td>{{ acc.note or '—' }}</td>
-              <td>{{ acc.createdAt | fmt_time }}</td>
               <td class="actions">
+                {% if acc.kind != 'temporary' %}
                 <form method="post" action="{{ url_for('account_toggle') }}">
                   <input type="hidden" name="plate" value="{{ acc.plate }}">
                   <input type="hidden" name="kind"
-                         value="{{ 'temporary' if acc.kind == 'monthly' else 'monthly' }}">
+                         value="{{ 'yearly' if acc.kind == 'monthly' else 'monthly' }}">
                   <button class="btn" type="submit">
-                    改为{{ '临停' if acc.kind == 'monthly' else '月租' }}
+                    改为{{ '年租' if acc.kind == 'monthly' else '月租' }}
                   </button>
                 </form>
-                <form method="post" action="{{ url_for('account_delete') }}"
+                {% endif %}                <form method="post" action="{{ url_for('account_delete') }}"
                       onsubmit="return confirm('确定删除账户 {{ acc.plate }}？');">
                   <input type="hidden" name="plate" value="{{ acc.plate }}">
                   <button class="btn" type="submit">删除</button>
@@ -85,19 +105,43 @@
             </tr>
             {% endfor %}
           {% else %}
-            <tr><td colspan="6" class="tip">还没有账户</td></tr>
+            <tr><td colspan="7" class="tip">还没有账户</td></tr>
           {% endif %}
         </tbody>
       </table>
     </div>
   </section>
 
+  {% if recharges %}
+  <section class="card">
+    <h2>充值记录</h2>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>时间</th><th>车牌</th><th>套餐</th><th>时长</th><th>金额</th></tr>
+        </thead>
+        <tbody>
+          {% for r in recharges %}
+          <tr>
+            <td>{{ r.time | fmt_time }}</td>
+            <td class="plate">{{ r.plate }}</td>
+            <td>{{ kind_label(r.kind) }}</td>
+            <td>{{ r.option }}</td>
+            <td>{{ r.amount }} 元</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
   <footer class="foot">
     <a href="{{ url_for('index') }}">← 返回车主端</a>
     ·
     <a href="{{ url_for('scan') }}">扫码入场</a>
     ·
-    <a href="{{ url_for('admin') }}">管理后台</a>
+    <a href="{{ url_for('recharge') }}">充值</a>
   </footer>
 </div>
 </body>

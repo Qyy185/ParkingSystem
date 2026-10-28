@@ -16,6 +16,7 @@
 
   <div class="nav-links">
     <a class="nav-link" href="{{ url_for('scan') }}">扫码入场</a>
+    <a class="nav-link" href="{{ url_for('recharge') }}">充值</a>
     <a class="nav-link" href="{{ url_for('accounts') }}">账户管理</a>
     <a class="nav-link" href="{{ url_for('admin') }}">管理后台</a>
   </div>
@@ -48,7 +49,7 @@
         <span class="cell-id">{{ s.id }}</span>
         <span class="cell-plate">{{ s.plate if s.plate else '空闲' }}</span>
         {% if s.channel %}
-        <span class="cell-channel {{ s.channel }}">{{ '月租' if s.channel == 'monthly' else '临停' }}</span>
+        <span class="cell-channel {{ s.channel }}">{{ '会员' if s.channel == 'member' else '临停' }}</span>
         {% endif %}
       </div>
       {% endfor %}
@@ -75,6 +76,17 @@
         <button class="btn" type="submit">查询费用</button>
       </div>
     </form>
+  </section>
+
+  <section class="card">
+    <h2>经常来？开个会员</h2>
+    <p class="tip" style="text-align: left; padding-top: 0;">
+      临停按小时计费，月租 / 年租入场<b>不计停车费</b>。
+      月租 300 元起，年租 2700 元。
+    </p>
+    <a class="btn primary" href="{{ url_for('recharge') }}" style="width: 100%;">
+      去充值开通会员
+    </a>
   </section>
 
   <footer class="foot">

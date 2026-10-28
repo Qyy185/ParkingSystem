@@ -39,6 +39,16 @@ def fmt_time(ts):
         return ""
 
 
+def fmt_date(ts):
+    """毫秒时间戳 → '2026-11-25'。用于会员有效期展示。"""
+    if not ts:
+        return "永久有效"
+    try:
+        return time.strftime("%Y-%m-%d", time.localtime(ts / 1000))
+    except (TypeError, ValueError, OSError):
+        return ""
+
+
 def fmt_duration(minutes):
     """分钟 → '2 小时 15 分钟'。用于流水表的时长列。"""
     if minutes is None:
@@ -52,6 +62,7 @@ def fmt_duration(minutes):
 
 # 把格式化函数注册给模板，模板里直接用 {{ log.time | fmt_time }}
 app.jinja_env.filters["fmt_time"] = fmt_time
+app.jinja_env.filters["fmt_date"] = fmt_date
 app.jinja_env.filters["fmt_duration"] = fmt_duration
 
 
@@ -110,10 +121,11 @@ def entry():
         return redirect(url_for("index", msg=result.get("msg", "入场失败")))
 
     spot = result["spot"]
-    # 分流结果也告诉用户：这辆车按月租还是临停处理的
+    # 分流结果也告诉用户：这辆车按月租/年租还是临停处理的
     channel = result.get("channel")
-    if channel == account.MONTHLY:
-        tail = "（月租，不计停车费）"
+    if channel == "member":
+        kind_label = account.kind_label(result.get("kind"))
+        tail = f"（{kind_label}，不计停车费）"
     else:
         tail = "（临停，按小时计费）"
     return redirect(url_for(
@@ -149,9 +161,9 @@ def pay():
     if not result.get("ok"):
         return redirect(url_for("index", msg=result.get("msg", "缴费失败")))
 
-    # 月租车费用为 0，但也是「出场了」，分开说清楚
-    if result.get("channel") == account.MONTHLY:
-        return redirect(url_for("index", ok_msg="月租车出场，车位已释放（本次费用 0 元）"))
+    # 会员车位费用为 0，但也是「出场了」，分开说清楚
+    if result.get("channel") == "member":
+        return redirect(url_for("index", ok_msg="会员车辆出场，车位已释放（本次费用 0 元）"))
     return redirect(url_for("index", ok_msg="缴费成功，车位已释放"))
 
 
@@ -206,8 +218,12 @@ def scan_confirm():
 
     # 扫到牌 → 查账户 → 分流
     kind, acc = account.classify(raw)
-    label = account.kind_label(kind)
-    if acc is None:
+    is_member = kind in (account.MONTHLY, account.YEARLY)
+    if is_member:
+        label = account.kind_label(kind)
+    elif acc is not None and acc.get("kind") == account.TEMPORARY:
+        label = "临停（在场）"
+    else:
         label = "临停（未登记）"
 
     result = parking.handle_entry(raw)
@@ -216,8 +232,8 @@ def scan_confirm():
 
     spot = result["spot"]
     channel = result.get("channel")
-    if channel == account.MONTHLY:
-        tip = f"月租车入场，车位 {spot['id']}（{spot['zone']}），本次不计停车费"
+    if channel == "member":
+        tip = f"{account.kind_label(kind)}入场，车位 {spot['id']}（{spot['zone']}），本次不计停车费"
     else:
         tip = f"临停车入场，车位 {spot['id']}（{spot['zone']}）"
     return redirect(url_for("scan", plate=plate.normalize(raw),
@@ -236,11 +252,14 @@ def accounts():
     # 新注册的排前面
     accounts_list = sorted(accounts_list,
                            key=lambda a: a.get("createdAt", 0), reverse=True)
+    recharges = list(reversed(store.read_recharges()))
     return render_template(
         "accounts.html",
         accounts=accounts_list,
+        recharges=recharges,
         stats=account.stats(),
         kind_label=account.kind_label,
+        is_expired=account.is_expired,
         msg=request.args.get("msg", ""),
         ok_msg=request.args.get("ok", ""),
     )
@@ -289,6 +308,123 @@ def account_delete():
 
 
 # ----------------------------------------------------------
+#  充值（v0.2.2）
+# ----------------------------------------------------------
+# 独立的充值页面，和停车费付款页面**分开**：
+#   · 停车费付款 → /exit → /pay（车主端）
+#   · 会员充值   → /recharge（独立页面）
+# 但付款页面可以**跳过来**（车主端有入口链接）。
+
+@app.route("/recharge")
+def recharge():
+    """充值页第一步：选套餐（带 kind 参数时同时显示第二步选时长）。"""
+    plate_no = (request.args.get("plate") or "").strip()
+    kind = request.args.get("kind") or ""
+    if kind and not account.is_member_kind(kind):
+        kind = ""
+
+    current = None
+    if plate_no:
+        current = account.find_by_plate(plate_no)
+
+    return render_template(
+        "recharge.html",
+        packages=account.PACKAGES,
+        plate=plate_no,
+        kind=kind,
+        current=current,
+        selected=None,
+        account_plate="",
+        msg=request.args.get("msg", ""),
+        ok_msg=request.args.get("ok", ""),
+    )
+
+
+@app.route("/recharge/select", methods=["POST"])
+def recharge_select():
+    """充值页第二步：选时长档位 → 展示确认。
+
+    同一个路由处理两种情况：
+      · 没传 periods → 只选了套餐，显示「第二步·选时长」
+      · 传了 periods → 套餐和档位都定了，显示「确认充值」
+    """
+    plate_no = (request.form.get("plate") or "").strip()
+    kind = request.form.get("kind") or ""
+
+    if not plate.is_valid(plate_no):
+        return redirect(url_for("recharge", plate=plate_no,
+                                msg=plate.invalid_reason(plate_no)))
+    if not account.is_member_kind(kind):
+        return redirect(url_for("recharge", plate=plate_no, msg="请选择月租或年租套餐"))
+
+    try:
+        periods = int(request.form.get("periods") or 0)
+    except ValueError:
+        periods = 0
+
+    # 还没选档位 → 显示第二步
+    if periods <= 0:
+        return render_template(
+            "recharge.html",
+            packages=account.PACKAGES,
+            plate=plate_no,
+            kind=kind,
+            current=account.find_by_plate(plate_no),
+            selected=None,
+            account_plate="",
+            msg="",
+            ok_msg="",
+        )
+
+    option = account.get_option(kind, periods)
+    if option is None:
+        return redirect(url_for("recharge", plate=plate_no, kind=kind,
+                                msg="没有这个套餐档位"))
+
+    selected = {
+        "kind": kind,
+        "periods": periods,
+        "label": option["label"],
+        "price": option["price"],
+    }
+    current = account.find_by_plate(plate_no)
+
+    return render_template(
+        "recharge.html",
+        packages=account.PACKAGES,
+        plate=plate_no,
+        kind=kind,
+        current=current,
+        selected=selected,
+        account_plate=plate.normalize(plate_no),
+        msg="",
+        ok_msg="",
+    )
+
+
+@app.route("/recharge/do", methods=["POST"])
+def recharge_do():
+    """确认充值。"""
+    plate_no = (request.form.get("plate") or "").strip()
+    kind = request.form.get("kind") or ""
+    try:
+        periods = int(request.form.get("periods") or 0)
+    except ValueError:
+        periods = 0
+
+    result = account.recharge(plate_no, kind, periods)
+    if not result.get("ok"):
+        return redirect(url_for("recharge", plate=plate_no, kind=kind,
+                                msg=result.get("msg", "充值失败")))
+
+    acc = result["account"]
+    return redirect(url_for(
+        "recharge", plate=plate_no, kind=kind,
+        ok=f"充值成功 {result['amount']} 元，余额 {acc['balance']} 元，"
+           f"有效期至 {fmt_date(result['expiresAt'])}"))
+
+
+# ----------------------------------------------------------
 #  错误处理
 # ----------------------------------------------------------
 @app.errorhandler(404)
@@ -302,6 +438,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print("  车主端:   http://localhost:%d/" % PORT)
     print("  扫码入场: http://localhost:%d/scan" % PORT)
+    print("  充值:     http://localhost:%d/recharge" % PORT)
     print("  账户管理: http://localhost:%d/accounts" % PORT)
     print("  管理后台: http://localhost:%d/admin" % PORT)
     print("=" * 60)

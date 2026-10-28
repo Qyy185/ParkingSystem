@@ -10,14 +10,16 @@
 | `calc_fee(entryTime)` | 分级计费：30 分钟免费 → 5 元/小时 → **每天**封顶 40 |
 | `handle_entry(plate)` | 入场：校验车牌 + 查重 + **按账户分流** + 分配车位 + 记流水 |
 | `handle_exit(plate)` | 出场计费：**只算钱，不放行** |
-| `handle_pay(plate)` | 缴费放行：释放车位 + 存盘 + 记流水 |
+| `handle_pay(plate)` | 缴费放行：释放车位 + 删临时账号 + 记流水 |
 | `find_in_field(plate)` | 查某车是否在场，返回在场车位 |
 
 设计要点：
 - 出场与缴费分成两步，为将来接支付接口留路径。
 - 车牌进业务层先归一化，保证「黑a 12345」和「黑A12345」是同一辆车。
 - **分流靠车牌，不靠车位**：入场时拿车牌查账户，账户标记这辆车是
-  月租还是临停。月租 → `channel = "monthly"`，不计费；其余 → `channel = "temp"`，正常计费。
+  月租/年租还是临停。月租/年租 → `channel = "member"`，不计费；其余 → `channel = "temp"`，正常计费。
+- **临时账号在场**：临停车入场时自动建一个临时账号，出场缴费后自动删掉。
+  会员账户不受影响。
 """
 
 import math
@@ -142,15 +144,20 @@ def calc_fee(entryTime):
 # 输入：plate 车牌字符串
 # 做的事：校验车牌 → 查重（车是否已在场）→ **查账户分流**
 #       → 分配车位 → 记入场时间 → 写回数据 → 记一条流水
+#       → **临停车顺便建个临时账号**
 # 返回：{"ok": True, "spot": 车位对象, "entryTime": 时间戳,
-#        "channel": "monthly"/"temp", "account": 账户或 None}
+#        "channel": "member"/"temp", "account": 账户或 None,
+#        "temp_created": 是否新建了临时账号}
 #   或 {"ok": False, "msg": "车牌格式不正确…" / "这辆车已在场内，车位 A-01" / "车位已满"}
 #
-# ★ 分流逻辑（v0.2.1）：
+# ★ 分流逻辑（v0.2.1 起）：
 #   拿车牌去查账户 —— 账户上的类型标记决定这辆车走哪条通道。
-#   · 有月租账户 → channel = "monthly"，入场不计费
-#   · 有临停账户 → channel = "temp"，正常计费
-#   · 没登记账户 → channel = "temp"（陌生人开来就是临停，不能拒之门外）
+#   · 有月租/年租账户 → channel = "member"，入场不计费
+#   · 没有 / 已过期 / 临时账号 → channel = "temp"，正常计费
+#
+# ★ 临时账号（v0.2.2）：
+#   临停车入场时自动建一个临时账号，出场缴费后自动删掉。
+#   它是「在场凭证」——让后台能看到场里有哪些临停车。
 # ============================================================
 def handle_entry(plate_no):
     # ① 车牌格式校验
@@ -166,7 +173,8 @@ def handle_entry(plate_no):
 
     # ③ 按车牌查账户分流（不是按车位）
     kind, acc = account.classify(normalized)
-    channel = account.MONTHLY if kind == account.MONTHLY else "temp"
+    is_member = kind in (account.MONTHLY, account.YEARLY)
+    channel = "member" if is_member else "temp"
 
     # ④ 分配车位（spots 和上面查重用的是同一批对象）
     spot = find_free_spot(spots)
@@ -181,8 +189,17 @@ def handle_entry(plate_no):
     store.write_all(spots)
     store.add_log({"type": "in", "plate": normalized, "spot": spot["id"],
                    "channel": channel})
+
+    # ⑥ 临停车入场 → 自动建临时账号（会员不动）
+    temp_created = False
+    if not is_member:
+        r = account.create_temp_account(normalized)
+        temp_created = bool(r.get("created"))
+        acc = r.get("account") or acc
+
     return {"ok": True, "spot": spot, "entryTime": spot["entryTime"],
-            "channel": channel, "account": acc}
+            "channel": channel, "account": acc, "kind": kind,
+            "temp_created": temp_created}
 
 
 # ============================================================
@@ -194,8 +211,8 @@ def handle_entry(plate_no):
 #
 # ★ 关键：这里【不改】车位状态。先算钱，等车主确认缴费才放行。
 #
-# ★ 月租通道（v0.2.1）：这辆车入场时记的是 monthly 通道，费用恒为 0。
-#   月租是「已经付过月租费」，不是「不交钱」，所以这里不该再收一次。
+# ★ 会员通道（v0.2.1 起）：这辆车入场时记的是 member 通道，费用恒为 0。
+#   月租/年租是「已经付过月租费」，不是「不交钱」，所以这里不该再收一次。
 # ============================================================
 def handle_exit(plate_no):
     normalized = plate.normalize(plate_no)
@@ -204,7 +221,7 @@ def handle_exit(plate_no):
         return {"ok": False, "msg": "没找到这辆车"}
     minutes = (store.now_ms() - spot["entryTime"]) // 60000
     channel = spot.get("channel") or "temp"
-    fee = 0 if channel == account.MONTHLY else calc_fee(spot["entryTime"])
+    fee = 0 if channel == "member" else calc_fee(spot["entryTime"])
     return {"ok": True, "fee": fee, "minutes": minutes, "channel": channel}
 
 
@@ -213,13 +230,18 @@ def handle_exit(plate_no):
 # 输入：plate 车牌字符串
 # 做的事：把这辆车的车位释放（status 变 free，清空 plate 和 entryTime）
 #       → 写回数据 → 记一条流水（带金额）
-# 返回：{"ok": True} 或 {"ok": False, "msg": "原因"}
+#       → **临停车顺便删掉它的临时账号**
+# 返回：{"ok": True, "fee": 金额, "channel": 通道}
+#   或 {"ok": False, "msg": "原因"}
 #
 # ★ 顺序陷阱：先算钱（用 entryTime），再清空。
 #   calc_fee 要用 entryTime 算钱，而后面会把 entryTime 设成 None。
 #
-# ★ 月租通道：费用为 0，但仍记一笔 pay 流水（金额 0），
+# ★ 会员通道：费用为 0，但仍记一笔 pay 流水（金额 0），
 #   这样「出场」这件事在流水里留痕，后台统计能看出车确实开走了。
+#
+# ★ 临时账号（v0.2.2）：临停车缴费出场后删掉临时账号。
+#   会员账户保留 —— 会员下次来还是会员。
 # ============================================================
 def handle_pay(plate_no):
     normalized = plate.normalize(plate_no)
@@ -228,7 +250,7 @@ def handle_pay(plate_no):
         return {"ok": False, "msg": "没找到这辆车"}
     minutes = (store.now_ms() - spot["entryTime"]) // 60000
     channel = spot.get("channel") or "temp"
-    fee = 0 if channel == account.MONTHLY else calc_fee(spot["entryTime"])
+    fee = 0 if channel == "member" else calc_fee(spot["entryTime"])
     spot["status"] = "free"
     spot["plate"] = None
     spot["entryTime"] = None
@@ -236,7 +258,15 @@ def handle_pay(plate_no):
     store.write_all(spots)
     store.add_log({"type": "pay", "plate": normalized, "spot": spot["id"],
                    "minutes": minutes, "fee": fee, "channel": channel})
-    return {"ok": True, "fee": fee, "channel": channel}
+
+    # 临停车出场 → 删掉它的临时账号（会员账户不动）
+    temp_removed = None
+    if channel == "temp":
+        r = account.remove_temp_account(normalized)
+        temp_removed = r.get("removed")
+
+    return {"ok": True, "fee": fee, "channel": channel,
+            "temp_removed": temp_removed}
 
 
 
