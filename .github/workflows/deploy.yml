@@ -206,44 +206,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # ★ TUNNEL_URL 是上一步用 `echo "TUNNEL_URL=..." >> $GITHUB_ENV` 写的，
+          # ★ TUNNEL_URL / ACCESS_PWD 都是上一步用 GITHUB_ENV 写的，
           #   在这个 step 里已经是普通 shell 变量，直接用 $TUNNEL_URL 即可。
           #   （不要写 ${{ env.TUNNEL_URL }} —— 那是求值时的上下文，取不到运行时值）
-          if [ -z "$TUNNEL_URL" ]; then
-            echo "⚠️ 没有拿到 TUNNEL_URL，跳过同步"
-            exit 0
-          fi
-          echo "$TUNNEL_URL" > tunnel-url.txt
-
-          # 先查文件当前 sha（不存在则为空）
-          EXISTING=$(curl -sf -H "Authorization: token $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/contents/tunnel-url.txt" \
-            | python3 -c "import sys,json; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || echo "")
-
-          # ★ 用独立脚本文件而不是内联 heredoc ——
-          #   YAML 块标量里的多行 Python 缩进很容易踩坑，
-          #   而且内联脚本出错时日志不好读。
-          export EXISTING_SHA="$EXISTING"
+          #
+          #   脚本内部把所有错误都吞了、永远 exit 0，
+          #   所以这一步绝对不会把 job 弄红。
           export TARGET_URL="$TUNNEL_URL"
-          PAYLOAD=$(python3 tools/sync_tunnel_url.py)
-
-          HTTP=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X PUT \
-            -H "Authorization: token $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Content-Type: application/json" \
-            "https://api.github.com/repos/${{ github.repository }}/contents/tunnel-url.txt" \
-            -d "$PAYLOAD")
-
-          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
-            echo "✅ 地址已同步到 tunnel-url.txt"
-            echo "   公网地址: $TUNNEL_URL"
-          else
-            echo "❌ 同步失败 HTTP $HTTP"
-            cat /tmp/resp.json
-            echo ""
-            echo "（不影响服务运行，地址仍可在 Actions 摘要里看到）"
-          fi
+          export TARGET_PWD="$ACCESS_PWD"
+          python3 tools/sync_tunnel_url.py
 
       - name: 保持服务在线
         # ★ if: always() —— 关键修复。
