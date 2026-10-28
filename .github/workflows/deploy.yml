@@ -33,6 +33,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
+    # 需要写权限：把公网地址同步回 tunnel-url.txt
+    permissions:
+      contents: write
+
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -115,6 +119,22 @@ jobs:
             echo ""
             echo "⏱️ 本次运行结束后地址会失效，需要重新触发。"
           } >> $GITHUB_STEP_SUMMARY
+
+      # ★ 把地址同步到仓库的 tunnel-url 文件。
+      #   这样不用登录 Actions 页面也能拿到地址 —— 命令行、脚本、
+      #   别人的手机扫码都能用。文件每次运行会覆盖。
+      - name: 同步地址到仓库
+        if: always()
+        run: |
+          if [ -n "$TUNNEL_URL" ]; then
+            echo "$TUNNEL_URL" > tunnel-url.txt
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add tunnel-url.txt
+            git commit -m "chore: 更新公网访问地址" || echo "（无变化，跳过提交）"
+            git push
+            echo "✅ 地址已同步到 tunnel-url.txt"
+          fi
 
       - name: 保持服务在线
         run: |
