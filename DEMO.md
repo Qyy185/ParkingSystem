@@ -80,17 +80,32 @@
 > ```
 > 地址照样同步回 `tunnel-url.txt`。
 
-#### A-1-1：不用登录 Actions 页面拿地址
+#### A-1-1：不用登录 Actions 页面拿地址和口令
 
-部署成功后，地址会自动同步到仓库根目录的 `tunnel-url.txt`。
-直接在仓库首页就能看到，或者命令行读：
+部署成功后，地址和口令会自动同步到仓库根目录的两个文件：
+
+| 文件 | 内容 | 给谁用 |
+|---|---|---|
+| `tunnel-url.txt` | 只有公网地址，一行 | 脚本 `curl` 直接取 |
+| `tunnel-info.txt` | 地址 + 口令 + 说明 | 人看的，扫一眼就有 |
+
+在仓库首页就能看到，或者命令行读：
 
 ```bash
+# 只要地址（写脚本用）
 curl -s https://raw.githubusercontent.com/Qyy185/ParkingSystem/main/tunnel-url.txt
+
+# 地址 + 口令（人看）
+curl -s https://raw.githubusercontent.com/Qyy185/ParkingSystem/main/tunnel-info.txt
 ```
 
-**好处**：不用登录 GitHub，脚本能自动取到地址。
-（比如做个一键部署脚本，或者把地址发到微信收藏夹）
+**好处**：不用登录 GitHub，脚本能自动取到地址，
+发给别人微信时也不用截图 Actions 页面。
+
+> ⚠️ 这个仓库是公开的，所以 `tunnel-info.txt` 里的口令也是公开的 ——
+> 这等于「知道地址的人一定知道口令」，挡不住有心人，但能挡住
+> 误扫到二维码的路人。想更严就配自己的 `ACCESS_PWD` Secret
+> （配了之后随机口令就不生效了，用你自己定的那一个）。
 
 ### 方式 B：本地跑 + 局域网（兜底）
 
