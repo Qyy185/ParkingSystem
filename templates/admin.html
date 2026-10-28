@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>地下停车场 · 管理后台</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
@@ -20,7 +20,7 @@
   </div>
 
   <section class="card">
-    <div class="stat-row">
+    <div class="stat-row cols-4">
       <div class="stat"><span class="num">{{ spots|length }}</span><span class="lbl">总车位</span></div>
       <div class="stat"><span class="num free">{{ free_count }}</span><span class="lbl">空闲</span></div>
       <div class="stat"><span class="num busy">{{ spots|length - free_count }}</span><span class="lbl">已占用</span></div>
@@ -51,14 +51,14 @@
           {% if logs %}
             {% for log in logs %}
             <tr>
-              <td>{{ log.time | fmt_time }}</td>
-              <td class="plate">{{ log.plate }}</td>
-              <td>{{ '入场' if log.type == 'in' else ('缴费' if log.type == 'pay' else log.type) }}</td>
-              <td>{{ log.spot }}</td>
-              <td><span class="channel-tag {{ log.channel if log.channel else 'temp' }}">
+              <td data-label="时间">{{ log.time | fmt_time }}</td>
+              <td class="plate" data-label="车牌">{{ log.plate }}</td>
+              <td data-label="事件">{{ '入场' if log.type == 'in' else ('缴费' if log.type == 'pay' else log.type) }}</td>
+              <td data-label="车位">{{ log.spot }}</td>
+              <td data-label="通道"><span class="channel-tag {{ log.channel if log.channel else 'temp' }}">
                 {{ '会员' if log.channel == 'member' else '临停' }}</span></td>
-              <td>{{ log.minutes | fmt_duration if log.minutes is defined else '' }}</td>
-              <td>{{ log.fee ~ ' 元' if log.fee is defined else '' }}</td>
+              <td data-label="时长">{{ log.minutes | fmt_duration if log.minutes is defined else '' }}</td>
+              <td data-label="金额">{{ log.fee ~ ' 元' if log.fee is defined else '' }}</td>
             </tr>
             {% endfor %}
           {% else %}

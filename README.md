@@ -7,7 +7,7 @@
 [![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**当前版本：v0.2.2**（账户细分 + 会员充值）
+**当前版本：v0.3**（手机端适配）
 
 | 页面 | 地址 |
 |---|---|
@@ -16,6 +16,9 @@
 | **充值** | `http://localhost:3000/recharge` |
 | 账户管理 | `http://localhost:3000/accounts` |
 | 管理后台 | `http://localhost:3000/admin` |
+
+> 📱 **手机访问**：启动后车主端页脚会显示本机局域网地址（如 `http://192.168.1.5:3000`），
+> 手机连同一个 Wi-Fi 直接在浏览器里输这个地址就行，不用装任何东西。
 
 ---
 
@@ -156,7 +159,89 @@ python -m venv .venv
 
 ---
 
-## 特色五：两段式出场流程
+## 特色五：手机端适配（v0.3）
+
+**这不是「加个 media query 就完事」**，实测发现三个真问题并逐个解决了。
+
+### 问题一：宽表格在手机上没法用
+
+账户列表 7 列、流水表 7 列，在 390px 屏幕上需要横向滚动，
+用户得左右拖才能看到「删除」按钮，而且完全不知道右边还有内容。
+
+**解法：表格卡片化。** 小屏时每一行变成一张卡片，字段名显示在左边：
+
+```
+桌面（宽表）              手机（卡片）
+┌────┬───┬────┐         ┌─────────────────┐
+│车牌│类型│余额│         │ 车牌    黑A22222 │
+├────┼───┼────┤         │ 类型    [年租]   │
+│黑A │月租│850 │         │ 余额    2700 元  │
+└────┴───┴────┘         │ 操作  [改月租][删除]│
+                         └─────────────────┘
+```
+
+**纯 CSS 实现，零 JavaScript** —— 靠 `data-label` 属性提供字段名：
+
+```html
+<td data-label="车牌">黑A22222</td>
+```
+
+```css
+@media (max-width: 640px) {
+  .table thead { display: none; }          /* 表头没用了 */
+  .table td::before {
+    content: attr(data-label);              /* 字段名从 data-label 来 */
+    color: #8a9099; font-size: 12px;
+  }
+}
+```
+
+### 问题二：iOS 输入框会让页面自动放大
+
+`.input` 原来字号 15px。**iOS Safari 对小于 16px 的输入框，聚焦时会强制放大页面**，
+整个布局跟着跳动，用户得点一下屏幕才能继续。
+
+改成 16px 就没这问题。同理按钮高度从 42px 提到 **44px**（Apple HIG 的触摸标准）。
+
+### 问题三：刘海屏 / 底部小白条遮挡内容
+
+`viewport-fit=cover` 让背景铺满全屏，代价是内容会顶到刘海下面。
+用 `env(safe-area-inset-*)` 把内容缩回来：
+
+```css
+@supports (padding: max(0px)) {
+  .wrap {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-bottom: calc(40px + env(safe-area-inset-bottom));
+  }
+}
+```
+
+### 断点设计
+
+| 视口 | 布局 |
+|---|---|
+| ≤ 640px（手机） | 表格转卡片、统计卡 6 格网格、导航 2×2、车位格子 3 列 |
+| 641~1023px（平板） | 表格保持表格 + 横向滚动、统计卡自适应列 |
+| ≥ 1024px（桌面） | 完整表格 + 8 列车位格 |
+
+### 验证方式
+
+用 **Chrome DevTools Protocol 设备模拟**在 390×844（iPhone 12）和 320×568（iPhone SE）
+两个视口下逐页截图 + 测量 `scrollWidth`，确认 10 个页面-视口组合**全部无横向溢出**。
+
+```python
+# 关键指标：scrollWidth 必须等于 clientWidth
+res = Runtime.evaluate("document.documentElement.scrollWidth")
+```
+
+> ⚠️ **别用 `--window-size` 截图来判断响应式**。那个参数下 Edge 的实际视口
+> 和截图尺寸对不上，会误判成「整页被裁」。必须用 CDP 的
+> `Emulation.setDeviceMetricsOverride` 做真机模拟。
+
+---
+
+## 特色六：两段式出场流程
 
 `handle_exit` **只算钱，不释放车位**；`handle_pay` 才真正放行。
 
@@ -171,7 +256,7 @@ handle_pay   →  用户确认付款后，才把车位释放
 
 ---
 
-## 特色六：数据持久化与流水审计
+## 特色七：数据持久化与流水审计
 
 四张 JSON 表：`data/parking.json`（车位）、`data/logs.json`（停车流水）、
 `data/accounts.json`（账户）、`data/recharges.json`（充值流水）。
@@ -223,7 +308,7 @@ def _read_list(path):
 │   └── style.css       # 纯 CSS（响应式 + Grid 布局）
 ├── data/               # 运行时生成的数据文件（gitignore）
 ├── tools/
-│   ├── selftest.py     # 189 项自动化自检
+│   ├── selftest.py     # 211 项自动化自检
 │   ├── launcher.src.txt # 启动器源文件（UTF-8）
 │   └── convert_launcher.ps1  # 转码成 GBK 的 启动.bat
 ├── requirements.txt
@@ -246,7 +331,7 @@ def _read_list(path):
 .venv/Scripts/python.exe tools/selftest.py
 ```
 
-自检分两部分，共 **189 项**：
+自检分两部分，共 **211 项**：
 
 **A. 业务规则单元测试**（162 项，直接调业务层，不依赖网络）
 
@@ -270,7 +355,29 @@ def _read_list(path):
 | **余额扣减** | 够就扣、不够不扣并返回差额 |
 | 账户与付款分离 | 缴停车费不改账户类型、不扣充值余额 |
 
-**B. HTTP 端到端测试**（27 项，真起服务器，请求页面和表单）
+**B. HTTP 端到端测试**（49 项，真起服务器，请求页面和表单）
+
+其中最后 22 项是 **v0.3 手机端适配**的回归防护：
+
+| 检查项 | 说明 |
+|---|---|
+| viewport meta | 5 个页面都有 `width=device-width` |
+| viewport-fit=cover | 5 个页面都声明了，避开刘海和小白条 |
+| `data-label` 覆盖 | 账户列表 / 流水表的 td 都带字段名，卡片化才不会变无名列表 |
+| CSS 手机断点 | `@media (max-width: 640px)` 存在 |
+| CSS 卡片化规则 | `attr(data-label)` + `table thead` 规则存在 |
+| 安全区适配 | `safe-area-inset-bottom` 存在 |
+| 统计卡用 grid | 不是 `flex`（flex 会被内容撑爆） |
+| 输入框字号 ≥ 16px | 防 iOS Safari 聚焦时自动放大页面 |
+| 按钮/输入框高度 ≥ 44px | Apple HIG 触摸标准 |
+| flex-basis 塌陷修复 | 竖排表单里 `flex: none` |
+| 局域网访问提示 | 页脚显示手机能访问的地址 |
+
+> 💡 **像素级效果没法用断言测**，所以另有 CDP 设备模拟的截图人工核对
+> （390×844 和 320×568 两个视口 × 5 个页面 = 10 组，全部无横向溢出）。
+
+<details>
+<summary>完整 HTTP 测试清单（点击展开）</summary>
 
 ```
 [PASS] GET / 200
@@ -320,9 +427,32 @@ def _read_list(path):
 [PASS] 账户页含充值记录
 [PASS] 非法车牌充值被拦
 [PASS] 车主端有充值入口
+[PASS] / 有 viewport meta
+[PASS] / 声明了 viewport-fit=cover
+[PASS] /scan 有 viewport meta
+[PASS] /scan 声明了 viewport-fit=cover
+[PASS] /accounts 有 viewport meta
+[PASS] /accounts 声明了 viewport-fit=cover
+[PASS] /admin 有 viewport meta
+[PASS] /admin 声明了 viewport-fit=cover
+[PASS] /recharge 有 viewport meta
+[PASS] /recharge 声明了 viewport-fit=cover
+[PASS] 账户列表 td 带 data-label
+[PASS] 账户列表表头含车牌列
+[PASS] 流水表 td 带 data-label
+[PASS] CSS 有手机断点
+[PASS] CSS 有表格卡片化规则
+[PASS] CSS 有安全区适配
+[PASS] CSS 统计卡用了 grid
+[PASS] 输入框字号 ≥ 16px（防 iOS 自动缩放）
+[PASS] 主按钮高度 ≥ 44px
+[PASS] 输入框高度 ≥ 44px
+[PASS] 竖排表单修正了 flex-basis 塌陷问题
+[PASS] 车主端含局域网访问提示
 ---
-189 / 189 通过
+211 / 211 通过
 ```
+</details>
 
 ---
 
@@ -332,8 +462,9 @@ def _read_list(path):
 |---|---|---|
 | v0.1 | ✅ 已封版 | 临时停车：按小时 + 按日，每天封顶 40 |
 | v0.2.1 | ✅ 已封版 | 扫码入场 + 车牌分流 + 账户管理 |
-| **v0.2.2** | ✅ **当前** | **账户细分（月租/年租）+ 临时账号在场 + 独立充值页** |
-| v0.3 | 计划中 | 报表统计、CSV 导出、余额抵扣临停费用 |
+| v0.2.2 | ✅ 已封版 | 账户细分（月租/年租）+ 临时账号在场 + 独立充值页 |
+| **v0.3** | ✅ **当前** | **手机端适配：表格卡片化 + iOS 缩放修复 + 安全区 + 触控目标** |
+| v0.4 | 计划中 | 报表统计、CSV 导出、余额抵扣临停费用 |
 
 ---
 
@@ -341,7 +472,7 @@ def _read_list(path):
 
 - **Python 3.13**（venv 隔离，除 Flask 外零依赖）
 - **Flask 3.1** + **Jinja2** 服务端渲染
-- **纯 CSS** 响应式布局（CSS Grid，媒体查询适配手机）
+- **纯 CSS** 响应式布局（CSS Grid + 媒体查询，≤640px 表格转卡片）
 - **JSON 文件持久化**（车位 / 停车流水 / 账户 / 充值流水 四张表）
 - **Git 版本管理**
 

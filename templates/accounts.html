@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>地下停车场 · 账户管理</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
@@ -28,7 +28,7 @@
   {% endif %}
 
   <section class="card">
-    <div class="stat-row">
+    <div class="stat-row cols-5">
       <div class="stat"><span class="num">{{ stats.total }}</span><span class="lbl">账户总数</span></div>
       <div class="stat"><span class="num free">{{ stats.monthly }}</span><span class="lbl">月租</span></div>
       <div class="stat"><span class="num free">{{ stats.yearly }}</span><span class="lbl">年租</span></div>
@@ -77,16 +77,16 @@
           {% if accounts %}
             {% for acc in accounts %}
             <tr>
-              <td class="plate">{{ acc.plate }}</td>
-              <td>
+              <td class="plate" data-label="车牌">{{ acc.plate }}</td>
+              <td data-label="类型">
                 <span class="kind-badge {{ acc.kind }}">{{ kind_label(acc.kind) }}</span>
                 {% if is_expired(acc) %}<span class="kind-badge temp">已过期</span>{% endif %}
               </td>
-              <td>{{ acc.holder or '—' }}</td>
-              <td>{{ acc.balance or 0 }} 元</td>
-              <td>{{ acc.expiresAt | fmt_date }}</td>
-              <td>{{ acc.note or '—' }}</td>
-              <td class="actions">
+              <td data-label="车主">{{ acc.holder or '—' }}</td>
+              <td data-label="余额">{{ acc.balance or 0 }} 元</td>
+              <td data-label="有效期">{{ acc.expiresAt | fmt_date }}</td>
+              <td data-label="备注">{{ acc.note or '—' }}</td>
+              <td class="actions" data-label="操作">
                 {% if acc.kind != 'temporary' %}
                 <form method="post" action="{{ url_for('account_toggle') }}">
                   <input type="hidden" name="plate" value="{{ acc.plate }}">
@@ -96,7 +96,8 @@
                     改为{{ '年租' if acc.kind == 'monthly' else '月租' }}
                   </button>
                 </form>
-                {% endif %}                <form method="post" action="{{ url_for('account_delete') }}"
+                {% endif %}
+                <form method="post" action="{{ url_for('account_delete') }}"
                       onsubmit="return confirm('确定删除账户 {{ acc.plate }}？');">
                   <input type="hidden" name="plate" value="{{ acc.plate }}">
                   <button class="btn" type="submit">删除</button>
@@ -123,11 +124,11 @@
         <tbody>
           {% for r in recharges %}
           <tr>
-            <td>{{ r.time | fmt_time }}</td>
-            <td class="plate">{{ r.plate }}</td>
-            <td>{{ kind_label(r.kind) }}</td>
-            <td>{{ r.option }}</td>
-            <td>{{ r.amount }} 元</td>
+            <td data-label="时间">{{ r.time | fmt_time }}</td>
+            <td class="plate" data-label="车牌">{{ r.plate }}</td>
+            <td data-label="套餐">{{ kind_label(r.kind) }}</td>
+            <td data-label="时长">{{ r.option }}</td>
+            <td data-label="金额">{{ r.amount }} 元</td>
           </tr>
           {% endfor %}
         </tbody>

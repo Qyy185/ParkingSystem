@@ -51,9 +51,27 @@ body {
 .alert-fee strong { font-size: 22px; color: #ba7517; }
 
 /* ---- 统计 ---- */
-.stat-row { display: flex; gap: 10px; margin-bottom: 14px; }
+/* ============================================================
+   手机端适配（v0.3）
+   ============================================================
+   断点说明：
+   · ≤ 640px  —— 手机竖屏。表格转卡片、统计卡换行、触控目标加大。
+   · 641~1023px —— 平板 / 横屏手机。表格仍保持表格形态但允许横向滚动。
+   · ≥ 1024px —— 桌面。完整表格 + 8 列车位格。
+
+   表格卡片化用纯 CSS 实现，靠 data-label 属性提供字段名：
+   <td data-label="车牌">黑A12345</td>
+   → 小屏时用 ::before 把 data-label 显示成左边的标签文字。
+   ============================================================ */
+
+/* ---- 统计卡：grid 自适应，小屏自动换行而不是挤成一排 ---- */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
 .stat {
-  flex: 1;
   background: #f7f8fa;
   border-radius: 10px;
   padding: 10px 6px;
@@ -124,24 +142,26 @@ body {
 .input {
   flex: 1;
   min-width: 0;
-  height: 42px;
+  height: 44px;
   padding: 0 12px;
   border: 1px solid #dfe1e5;
   border-radius: 8px;
-  font-size: 15px;
+  /* ★ 16px 是 iOS 的分界线：小于 16px 时 Safari 聚焦输入框会强制放大页面，
+     整个布局跟着跳动，用户得点一下才能继续。这里特意不用 15px。 */
+  font-size: 16px;
   background: #fff;
   color: #1f2329;
 }
 .input:focus { outline: none; border-color: #378add; }
 
 .btn {
-  height: 42px;
+  height: 44px;
   padding: 0 18px;
   border: 1px solid #dfe1e5;
   border-radius: 8px;
   background: #fff;
   color: #1f2329;
-  font-size: 15px;
+  font-size: 16px;
   cursor: pointer;
   white-space: nowrap;
   text-decoration: none;
@@ -151,7 +171,7 @@ body {
 }
 .btn:active { transform: translateY(1px); }
 .btn.primary { background: #378add; border-color: #378add; color: #fff; }
-.alert-fee .btn { height: 38px; }
+.alert-fee .btn { height: 40px; }
 
 .tip { color: #8a9099; font-size: 13px; text-align: center; padding: 12px 0; margin: 0; }
 
@@ -169,6 +189,19 @@ body {
 
 .foot { margin-top: 20px; text-align: center; font-size: 12px; color: #8a9099; }
 .foot a { color: #378add; text-decoration: none; }
+
+/* 局域网访问提示 */
+.lan-tip {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #eef4fb;
+  color: #185fa5;
+  font-size: 12px;
+  line-height: 1.7;
+  word-break: break-all;
+}
+.lan-tip strong { font-weight: 600; }
 
 /* ---- 扫码页（模拟车牌识别摄像头）---- */
 .scanner .scan-view {
@@ -347,3 +380,147 @@ body {
   gap: 10px;
 }
 .recharge-form .input { width: 100%; }
+
+/* ============================================================
+   手机端适配（v0.3）
+   ============================================================ */
+
+/* ---- 安全区：避开 iPhone 刘海和底部小白条 ----
+   viewport-fit=cover 让背景铺满全屏，代价是内容会顶到刘海下面，
+   所以要用 env(safe-area-inset-*) 把内容缩回来。 */
+@supports (padding: max(0px)) {
+  .wrap {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-bottom: calc(40px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ---- 平板 / 横屏手机：表格保持表格，允许横向滚动 ---- */
+@media (min-width: 641px) and (max-width: 1023px) {
+  .wrap.wide { max-width: 100%; }
+  .stat-row { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+}
+
+/* ---- 手机竖屏：≤ 640px ---- */
+@media (max-width: 640px) {
+  .wrap { padding: 16px 14px 32px; }
+
+  /* 标题略缩一档，手机上不用那么大的字 */
+  .head h1 { font-size: 19px; }
+
+  /* 统计卡：小屏用 6 格网格，每张卡占 2 格。
+     3 张 → 3+0+0？不对，是每张占 2 格共 6 格 → 3 张正好排一行。
+     4 张 → 2+2+2+2 折成 2 行，每行 2 张（各占 3 格）。
+     5 张 → 2+2+2 折行，最后一行 1 张占 2 格。
+     用 span 让每张卡在 6 格网格里占 2 格，最后一行自动回填。 */
+  .stat-row { grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .stat { padding: 9px 4px; grid-column: span 2; }
+  .stat .num { font-size: 20px; }
+  /* 4 张卡：每张占 3 格 → 2 行 2 列 */
+  .stat-row.cols-4 > .stat { grid-column: span 3; }
+
+  /* 导航：2×2 网格，每个链接都是 44px 高，够手指点 */
+  .nav-links { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .nav-link {
+    min-width: 0;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+  }
+
+  /* 表单按钮占满整行，避免输入框被压得太窄 */
+  .row { flex-wrap: wrap; }
+  .row > .input { flex: 1 1 100%; }
+  .row > .btn { flex: 1 1 auto; }
+  /* 车牌格子手机上 3 列，格子更宽，车牌号不会断行 */
+  .grid { grid-template-columns: repeat(3, 1fr); gap: 7px; }
+  .cell-plate { font-size: 11px; }
+
+  /* 登记表单：每个字段独占一行 */
+  .inline-form { flex-direction: column; align-items: stretch; }
+  /* ★ 必须把 flex 改成 none。
+     原规则 .inline-form .input 有 flex:1（即 flex-basis:0%），
+     在 column 方向的 flex 容器里 basis 管的是「高度」，
+     会直接盖掉 height:44px，输入框就塌成了 20px 高。 */
+  .inline-form .input,
+  .inline-form select,
+  .inline-form .btn {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    height: 44px;
+  }
+
+  /* 套餐卡片：手机上一列一个，价格更醒目 */
+  .plan-grid { grid-template-columns: 1fr; }
+  .plan-price { font-size: 20px; }
+
+  /* ==========================================================
+     表格卡片化 —— 手机端表格的关键改造
+     宽表在手机上横向滚动很难用（要找列、容易滑过头）。
+     改成：每一行变成一张卡片，字段名从 data-label 拿来显示在左边。
+
+     <td data-label="车牌">黑A12345</td>
+     →  ▸ 车牌    黑A12345
+     ========================================================== */
+  .table-wrap { overflow-x: visible; }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td { display: block; width: 100%; }
+
+  .table thead {
+    /* 表头在卡片模式下没用了，字段名改由 data-label 提供 */
+    display: none;
+  }
+
+  .table tr {
+    border: 1px solid #ebedf0;
+    border-radius: 10px;
+    background: #fff;
+    margin-bottom: 10px;
+    padding: 4px 0;
+  }
+  .table tr:last-child { margin-bottom: 0; }
+
+  .table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 7px 12px;
+    border-bottom: 1px solid #f4f5f6;
+    white-space: normal;
+    text-align: right;
+  }
+  .table td:last-child { border-bottom: none; }
+
+  /* 左边的字段名 */
+  .table td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-weight: 400;
+    color: #8a9099;
+    text-align: left;
+  }
+  /* 没写 data-label 的单元格（比如「暂无记录」那行）不显示标签 */
+  .table td:not([data-label])::before { content: none; }
+  .table td:not([data-label]) { justify-content: center; text-align: center; }
+
+  /* 表格里的操作按钮：手机上要够大才好点 */
+  .table td.actions {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .table td.actions .btn { height: 36px; padding: 0 14px; font-size: 14px; }
+  .table td.actions form { margin-right: 0; }
+
+  /* 「暂无记录」占满整行 */
+  .table td[colspan] { display: block; }
+}

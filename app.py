@@ -8,6 +8,7 @@ Flask 服务端
 启动：python app.py
 """
 
+import socket
 import time
 
 from flask import Flask, redirect, render_template, request, url_for
@@ -67,6 +68,27 @@ app.jinja_env.filters["fmt_duration"] = fmt_duration
 
 
 # ----------------------------------------------------------
+#  局域网地址（手机访问用）
+# ----------------------------------------------------------
+def lan_ip():
+    """拿到本机的局域网 IP，让用户知道手机该输哪个地址。
+
+    做法是建一个 UDP socket 连一个「不会真的发包」的地址：
+    connect() 不会发送任何数据，但操作系统会按路由表选出
+    「走默认网卡的那个出口地址」，那正是手机能访问到的 IP。
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        ip = s.getsockname()[0]
+    except OSError:
+        ip = ""
+    finally:
+        s.close()
+    return ip if ip.startswith(("192.168.", "10.", "172.")) else ""
+
+
+# ----------------------------------------------------------
 #  页面
 # ----------------------------------------------------------
 @app.route("/")
@@ -84,6 +106,8 @@ def index():
         ok_msg=request.args.get("ok", ""),
         fee=request.args.get("fee", ""),
         minutes=request.args.get("minutes", ""),
+        lan_ip=lan_ip(),
+        port=PORT,
     )
 
 
@@ -184,6 +208,8 @@ def scan():
         detected_label=request.args.get("label", ""),
         msg=request.args.get("msg", ""),
         ok_msg=request.args.get("ok", ""),
+        lan_ip=lan_ip(),
+        port=PORT,
     )
 
 

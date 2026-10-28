@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -595,6 +596,9 @@ def get(path):
             return resp.status, resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode("utf-8")
+    except Exception as e:
+        # 超时/连接错误要带上是哪个 URL，否则排查时无从下手
+        raise RuntimeError("GET %s 失败: %s" % (path, e))
 
 
 def post(path, data):
@@ -618,9 +622,15 @@ def post(path, data):
 
 def test_http():
     print("=== 启动服务器 ===")
+    # ★ 服务器输出必须写到文件，不能用 PIPE。
+    #   PIPE 的缓冲区（64KB）满了之后，Flask 写访问日志会被阻塞，
+    #   整个服务器就卡死，表现为某个请求莫名其妙 timed out。
+    #   请求数一多（v0.3 加了手机适配检查后有 200+ 个请求）必然踩到这个坑。
+    log_path = os.path.join(tempfile.gettempdir(), "parking_selftest_server.log")
+    log_file = open(log_path, "w", encoding="utf-8")
     proc = subprocess.Popen(
         [PY, os.path.join(ROOT, "app.py")],
-        cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        cwd=ROOT, stdout=log_file, stderr=subprocess.STDOUT,
     )
     time.sleep(2.5)
 
@@ -773,6 +783,63 @@ def test_http():
         status, text = get("/")
         check("车主端有充值入口", 'href="/recharge"' in text)
 
+        # ====================================================
+        # 26. 手机端适配（v0.3）
+        # ====================================================
+        # 这里查的是「源码里该有的东西有没有」，真正的像素级效果
+        # 用 CDP 设备模拟截图人工确认过（390px / 320px 两个视口）。
+
+        MOBILE_PAGES = ["/", "/scan", "/accounts", "/admin", "/recharge"]
+        for path in MOBILE_PAGES:
+            status, text = get(path)
+            check("%s 有 viewport meta" % path,
+                  'name="viewport"' in text and "width=device-width" in text)
+            check("%s 声明了 viewport-fit=cover" % path,
+                  "viewport-fit=cover" in text)
+        # 27. 表格卡片化：关键表格的 td 必须带 data-label，
+        #     否则手机端转成卡片后就没有字段名了
+        status, text = get("/accounts")
+        check("账户列表 td 带 data-label", text.count('data-label=') >= 7,
+              "实际 %d 处" % text.count('data-label='))
+        check("账户列表表头含车牌列", ">车牌<" in text)
+
+        status, text = get("/admin")
+        check("流水表 td 带 data-label", text.count('data-label=') >= 7,
+              "实际 %d 处" % text.count('data-label='))
+
+        # 28. CSS 里必须有手机断点和卡片化规则
+        status, css = get("/static/style.css")
+        check("CSS 有手机断点", "@media (max-width: 640px)" in css)
+        check("CSS 有表格卡片化规则",
+              "attr(data-label)" in css and "table thead" in css)
+        check("CSS 有安全区适配", "safe-area-inset-bottom" in css)
+        check("CSS 统计卡用了 grid", "grid-template-columns: repeat(auto-fit" in css)
+
+        # 29. iOS 缩放：输入框字号必须 ≥ 16px，否则 Safari 聚焦时会放大页面
+        sizes = re.findall(r"\.input\s*\{[^}]*font-size:\s*(\d+)px", css)
+        check("输入框字号 ≥ 16px（防 iOS 自动缩放）",
+              all(int(s) >= 16 for s in sizes) if sizes else False,
+              "实际字号 %s" % sizes)
+
+        # 30. 触控目标：主按钮和输入框高度 ≥ 44px
+        btn_h = re.search(r"\.btn\s*\{[^}]*height:\s*(\d+)px", css)
+        check("主按钮高度 ≥ 44px",
+              btn_h is not None and int(btn_h.group(1)) >= 44,
+              "实际 %s" % (btn_h.group(1) if btn_h else "未找到"))
+        input_h = re.search(r"\.input\s*\{[^}]*height:\s*(\d+)px", css)
+        check("输入框高度 ≥ 44px",
+              input_h is not None and int(input_h.group(1)) >= 44,
+              "实际 %s" % (input_h.group(1) if input_h else "未找到"))
+
+        # 31. 竖排表单必须把 flex 改成 none
+        #     （column 方向下 flex-basis 会盖掉 height，导致输入框塌陷）
+        check("竖排表单修正了 flex-basis 塌陷问题",
+              "flex: none" in css)
+
+        # 32. 局域网访问提示（手机怎么连）
+        status, text = get("/")
+        check("车主端含局域网访问提示", "手机访问" in text or "lan-tip" in text)
+
     except Exception as e:
         check("请求过程无异常", False, str(e))
     finally:
@@ -781,6 +848,7 @@ def test_http():
             proc.wait(timeout=5)
         except Exception:
             proc.kill()
+        log_file.close()
 
 
 def main():

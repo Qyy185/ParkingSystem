@@ -37,7 +37,7 @@
   {% endif %}
 
   <section class="card">
-    <div class="stat-row">
+    <div class="stat-row cols-3">
       <div class="stat"><span class="num">{{ spots|length }}</span><span class="lbl">总车位</span></div>
       <div class="stat"><span class="num free">{{ free_count }}</span><span class="lbl">空闲</span></div>
       <div class="stat"><span class="num busy">{{ spots|length - free_count }}</span><span class="lbl">已占用</span></div>
@@ -92,6 +92,11 @@
   <footer class="foot">
     停车 30 分钟内免费 · 之后 5 元/小时 · 每天封顶 40 元<br>
     车牌格式：省份简称 + 字母 + 5~6 位，如 黑A12345（大小写、空格自动识别）
+    {% if lan_ip %}
+    <br><br>
+    <span class="lan-tip">📱 手机访问：连同一个 Wi-Fi，浏览器打开
+      <strong>http://{{ lan_ip }}:{{ port }}</strong></span>
+    {% endif %}
   </footer>
 </div>
 </body>

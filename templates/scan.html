@@ -109,6 +109,11 @@
     <a href="{{ url_for('accounts') }}">账户管理</a>
     ·
     <a href="{{ url_for('admin') }}">管理后台</a>
+    {% if lan_ip %}
+    <br><br>
+    <span class="lan-tip">📱 手机访问：连同一个 Wi-Fi，浏览器打开
+      <strong>http://{{ lan_ip }}:{{ port }}</strong></span>
+    {% endif %}
   </footer>
 </div>
 </body>
