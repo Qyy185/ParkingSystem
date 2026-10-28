@@ -144,6 +144,117 @@ def is_expired(acc):
     return store.now_ms() > expires_at
 
 
+def days_left(acc):
+    """距离到期还有几天。
+
+    返回值：
+      · 正数 —— 还剩几天（0 = 今天到期）
+      · 负数 —— 已经过期几天了
+      · None —— 没有到期时间（永久有效），不参与催缴
+
+    ★ 用「整天数」算，不按小时。这样 23 小时后到期算 0 天（今天到期），
+    不会因为差几分钟就跳到下一档，催缴频次才稳定。
+    """
+    if not acc:
+        return None
+    expires_at = acc.get("expiresAt") or 0
+    if not expires_at:
+        return None
+    now = store.now_ms()
+    if now >= expires_at:
+        # 已过期：算过期了几天
+        return -((now - expires_at) // DAY)
+    # 未过期：向上取整到整天
+    return (expires_at - now + DAY - 1) // DAY
+
+
+def expire_date_str(acc):
+    """到期日期字符串（YYYY-MM-DD），没有到期时间返回空串。"""
+    expires_at = (acc or {}).get("expiresAt") or 0
+    if not expires_at:
+        return ""
+    import time as _time
+    return _time.strftime("%Y-%m-%d", _time.localtime(expires_at / 1000))
+
+
+# ============================================================
+#  宽限期（v0.3.1）
+# ============================================================
+#
+# 租期过期 ≠ 立刻销户。现实里车主可能出差、忘了续、或者只是晚几天，
+# 立刻把账户删掉等于把客户推走。
+#
+# 所以过期后进入**宽限期**：
+#
+# ```
+# 到期前  ──────► 到期 ──────► 宽限期 180 天 ──────► 注销
+#   正常      过期，按临停     还能续费恢复会员        账户销毁
+#                            仍然保留余额
+# ```
+#
+# 宽限期内：
+#   · 入场按**临停**计费（不能白嫖会员待遇）
+#   · 续费可**恢复会员身份**，余额保留
+#   · 催缴继续提醒「不续费将被注销」
+#
+# 宽限期满仍未续费：
+#   · 账户标记为待清理
+#   · **车辆下次出场时注销**（清理时机跟着车走，不定时清理）
+#
+# 为什么注销要绑在出场？因为账户的价值在于「这辆车下次来能认出它」。
+# 车不在场的时候留着账户没意义，但也犯不着立刻删 —— 等它真来了再说，
+# 如果它在这半年里续费了，就当没过期过。
+
+GRACE_DAYS = 180          # 宽限期：半年
+GRACE_MS = GRACE_DAYS * DAY
+
+
+def grace_until(acc):
+    """宽限期截止时间戳。
+
+    = 原到期时间 + 180 天。没有到期时间返回 0（不适用）。
+    """
+    expires_at = (acc or {}).get("expiresAt") or 0
+    if not expires_at:
+        return 0
+    return expires_at + GRACE_MS
+
+
+def in_grace(acc):
+    """账户是否处于「已过期但还在宽限期内」。
+
+    这段时间账户还留着，续费能恢复会员身份。
+    """
+    if not acc:
+        return False
+    if not is_expired(acc):
+        return False
+    return store.now_ms() <= grace_until(acc)
+
+
+def is_obsolete(acc):
+    """账户是否「过宽限期了，应该清理掉」。
+
+    = 已过期 且 已过宽限期。清理动作发生在车辆出场时。
+    """
+    if not acc:
+        return False
+    if not is_expired(acc):
+        return False
+    return store.now_ms() > grace_until(acc)
+
+
+def grace_days_left(acc):
+    """宽限期还剩几天。已过宽限期返回负数。"""
+    end = grace_until(acc)
+    if not end:
+        return None
+    now = store.now_ms()
+    if now > end:
+        return -((now - end) // DAY)
+    return (end - now + DAY - 1) // DAY
+
+
 def classify(plate_no):
     """判断这辆车属于哪一类。
 
@@ -170,7 +281,8 @@ def classify(plate_no):
     return kind, acc
 
 
-def register(plate_no, kind=MONTHLY, holder="", note="", balance=0, expires_at=0):
+def register(plate_no, kind=MONTHLY, holder="", note="", balance=0, expires_at=0,
+             phone_no="", wechat_id=""):
     """登记一个**长期会员账户**（月租 / 年租）。
 
     只能登记会员。临停账号是入场自动建的，不走这里。
@@ -201,6 +313,10 @@ def register(plate_no, kind=MONTHLY, holder="", note="", balance=0, expires_at=0
             existing["holder"] = holder.strip()
         if note:
             existing["note"] = note.strip()
+        if phone_no:
+            existing["phone"] = phone_no.strip()
+        if wechat_id:
+            existing["wechat"] = wechat_id.strip()
         store.write_accounts(accounts)
         return {"ok": True, "account": existing, "created": False}
 
@@ -211,6 +327,9 @@ def register(plate_no, kind=MONTHLY, holder="", note="", balance=0, expires_at=0
         "note": note.strip(),
         "balance": int(balance or 0),      # 账户余额（元）
         "expiresAt": int(expires_at or 0),  # 到期时间戳，0 = 永久有效
+        "phone": phone_no.strip(),         # 手机号（催缴用，v0.3.1）
+        "wechat": wechat_id.strip(),       # 微信号（催缴用，v0.3.1）
+        "reminded": {},                    # 已发过的催缴档位（v0.3.1）
         "createdAt": store.now_ms(),
     }
     accounts.append(account)
@@ -371,6 +490,9 @@ def recharge(plate_no, kind, periods):
             "note": "充值开通",
             "balance": 0,
             "expiresAt": 0,
+            "phone": "",
+            "wechat": "",
+            "reminded": {},
             "createdAt": store.now_ms(),
         }
         accounts.append(target)
@@ -387,9 +509,22 @@ def recharge(plate_no, kind, periods):
     days = option["periods"] * DAYS_PER_PERIOD.get(kind, 30)
     new_expires = base + days * DAY
 
+    # ★ 宽限期内续费 → 恢复会员身份。
+    #   宽限期内账户没被注销，余额也还在，所以续费后余额应该累加而不是重置。
+    #   这里 balance 用的是 `+=`，自然就保留了原来的余额。
+    #
+    #   过期超宽限期的账户（该清理了）如果还没出场，续费也能救回来 ——
+    #   账户还在文件里，续费就等于重新开户，不需要特殊处理。
+    was_in_grace = in_grace(target)
+    if was_in_grace:
+        target["note"] = "宽限期内续费，已恢复会员"
+
     target["kind"] = kind
     target["balance"] = int(target.get("balance") or 0) + option["price"]
     target["expiresAt"] = new_expires
+    # ★ 续费后是新周期，催缴记录要清空。
+    #   否则「提前 7 天」这个档位会被认为已经发过，新周期永远不再提醒。
+    target["reminded"] = {}
     store.write_accounts(accounts)
 
     store.add_recharge({
@@ -398,10 +533,12 @@ def recharge(plate_no, kind, periods):
         "option": option["label"],
         "amount": option["price"],
         "days": days,
+        "restored": was_in_grace,
     })
 
     return {"ok": True, "account": target, "amount": option["price"],
-            "days": days, "expiresAt": new_expires, "created": created}
+            "days": days, "expiresAt": new_expires, "created": created,
+            "restored": was_in_grace}
 
 
 def deduct(plate_no, amount):
@@ -443,6 +580,12 @@ def stats():
     temporary = sum(1 for a in accounts if a.get("kind") == TEMPORARY)
     expired = sum(1 for a in accounts
                   if is_member_kind(a.get("kind")) and is_expired(a))
+    # 宽限期内：过期了但账户还保留着
+    in_grace_count = sum(1 for a in accounts
+                          if is_member_kind(a.get("kind")) and in_grace(a))
+    # 过了宽限期：账户待清理，下次出场时注销
+    obsolete = sum(1 for a in accounts
+                   if is_member_kind(a.get("kind")) and is_obsolete(a))
     total_balance = sum(int(a.get("balance") or 0) for a in accounts)
     return {
         "total": len(accounts),
@@ -450,5 +593,201 @@ def stats():
         "yearly": yearly,
         "temporary": temporary,
         "expired": expired,
+        "inGrace": in_grace_count,
+        "obsolete": obsolete,
         "balance": total_balance,
     }
+
+
+# ============================================================
+#  催缴（v0.3.1）
+# ============================================================
+#
+# 会员租期快到期时要主动提醒车主续费。催缴的难点不在「发消息」，
+# 而在**什么时候发、发几次** —— 发太早是骚扰，发太晚车主来不及，
+# 重复发更糟。
+#
+# **档位设计**：到期前 7 天、3 天、1 天、当天，各提醒一次。
+# 过期后不再催（已经过期了，催也没用，直接按临停计费）。
+#
+# **去重**：每个账户记一个 `reminded` 字段，存已发过的档位：
+#
+# ```json
+# "reminded": {"7": 1792993553950, "3": 1792993553950}
+# ```
+#
+# 键是「档位天数」，值是发送时间戳。同一档位只发一次。
+# 续费后 `expiresAt` 变了，档位重新开始算。
+
+REMIND_STAGES = [
+    {"days": 7, "label": "提前 7 天", "urgency": "normal", "phase": "before"},
+    {"days": 3, "label": "提前 3 天", "urgency": "normal", "phase": "before"},
+    {"days": 1, "label": "提前 1 天", "urgency": "urgent", "phase": "before"},
+    {"days": 0, "label": "今天到期", "urgency": "urgent", "phase": "before"},
+]
+
+# 续费价格提示，用在催缴文案里
+PRICE_HINTS = {
+    MONTHLY: "（月租 300 元起）",
+    YEARLY: "（年租 2700 元）",
+}
+
+
+def match_remind_stage(left_days):
+    """按剩余天数匹配催缴档位。
+
+    返回档位 dict，没匹配上返回 None。
+
+    ★ 匹配规则：取「days ≥ 剩余天数」里**最小**的那个档位。
+
+    每个档位 days 是一个**触发上界**，对应一个区间：
+
+    | 档位        | 区间       | 含义                       |
+    |-------------|-----------|----------------------------|
+    | 提前 7 天   | (3, 7]    | 还剩 3~7 天，提醒续费     |
+    | 提前 3 天   | (1, 3]    | 还剩 1~3 天，提醒续费     |
+    | 提前 1 天   | (0, 1]    | 还剩 1 天以内，提醒续费   |
+    | 今天到期    | (-∞, 0]   | 今天到期，最后一次提醒    |
+    | 无          | > 7       | 还早着，不催               |
+
+    举例：
+      · 还剩 5 天 → 落在 (3,7] → 匹配「提前 7 天」
+      · 还剩 2 天 → 落在 (1,3] → 匹配「提前 3 天」
+      · 还剩 0 天 → 落在 (-∞,0] → 匹配「今天到期」
+      · 还剩 10 天 → 不在任何区间 → None，不催
+
+    ⚠️ 别写成「≤ 剩余天数取最大」——那样剩 10 天也会匹配到「提前 7 天」，
+    等于「一周前就开始催」，是骚扰。
+    """
+    if left_days is None or left_days < 0:
+        return None
+    matched = None
+    for stage in REMIND_STAGES:
+        if stage["days"] >= left_days:
+            if matched is None or stage["days"] < matched["days"]:
+                matched = stage
+    return matched
+
+
+def match_grace_stage(grace_left):
+    """宽限期的催缴档位。
+
+    ★ v0.3.1：宽限期内**不催缴**。
+
+    宽限期是纯粹的「缓冲期」—— 给车主留半年时间，账户还在、余额还在，
+    随时回来续费就恢复会员。但既然已经判定他不续了，再发消息就是骚扰，
+    客户体验也差（「我都半年没来了你还天天催」）。
+
+    所以宽限期内：账户保留、不催缴、进场按临停计费、续费可恢复会员。
+    保留这个函数是为了留个扩展点 —— 将来要做「宽限期末尾最后一次挽留」
+    之类的策略，改这里就行。
+
+    永远返回 None = 不催。
+    """
+    return None
+
+
+def has_reminded(acc, stage_days):
+    """这个账户在这个档位上是否已经发过催缴。"""
+    reminded = (acc or {}).get("reminded") or {}
+    return str(stage_days) in reminded
+
+
+def mark_reminded(acc, stage_days, channel=None):
+    """记下「这个档位已经催过了」。
+
+    同时把账户的 `reminded` 整个换掉 —— 因为续费后到期时间变了，
+    旧的催缴记录就不再适用，要清掉重来。
+    """
+    reminded = dict((acc or {}).get("reminded") or {})
+    reminded[str(stage_days)] = store.now_ms()
+    acc["reminded"] = reminded
+    return acc
+
+
+def clear_reminded(acc):
+    """清空催缴记录。续费成功后调用 —— 新周期重新开始提醒。"""
+    acc["reminded"] = {}
+    return acc
+
+
+def pending_reminders(within_days=7):
+    """找出需要催缴的账户。
+
+    返回列表，每项：
+    {
+      "account": 账户,
+      "daysLeft": 剩余天数,
+      "stage": 匹配到的档位,
+      "expireDate": 到期日期,
+      "reminded": 该档位是否已发过,
+      "targets": 可用的发送目标 [{"channel": "sms", "target": "138xxxx"}]
+    }
+
+    ★ 只催**未过期**的会员账户（within_days 天内到期）。
+
+    已过期的分两种，都不催：
+      · 还在宽限期内 → 账户保留、余额保留，不打扰（v0.3.1 决定）
+      · 过了宽限期   → 账户待清理，已经不是要挽回的客户了
+    """
+    result = []
+    for acc in store.read_accounts():
+        if not is_member_kind(acc.get("kind")):
+            continue
+        left = days_left(acc)
+        if left is None:
+            continue          # 永久有效，不催
+        if left < 0:
+            continue          # 已过期（含宽限期内），一律不催
+        if left > within_days:
+            continue
+        stage = match_remind_stage(left)
+        if stage is None:
+            continue
+        result.append({
+            "account": acc,
+            "daysLeft": left,
+            "stage": stage,
+            "expireDate": expire_date_str(acc),
+            "reminded": has_reminded(acc, stage["days"]),
+            "targets": available_targets(acc),
+        })
+    # 越接近到期排越前
+    result.sort(key=lambda x: x["daysLeft"])
+    return result
+
+
+def available_targets(acc):
+    """这个账户有哪些可用的发送目标。
+
+    一个账户可能同时有手机号和微信号，那就两个渠道都能发。
+    """
+    targets = []
+    phone_no = (acc.get("phone") or "").strip()
+    wechat_id = (acc.get("wechat") or "").strip()
+    if phone_no:
+        targets.append({"channel": "sms", "target": phone_no})
+    if wechat_id:
+        targets.append({"channel": "wechat", "target": wechat_id})
+    return targets
+
+
+def set_contact(plate_no, phone_no="", wechat_id=""):
+    """给账户补联系方式（手机号 / 微信号）。
+
+    传空字符串表示不修改该字段。
+    返回 {"ok": True, "account": 账户} 或 {"ok": False, "msg": 原因}
+    """
+    normalized = plate.normalize(plate_no)
+    if not normalized:
+        return {"ok": False, "msg": "车牌号不能为空"}
+    accounts = store.read_accounts()
+    for acc in accounts:
+        if plate.normalize(acc.get("plate")) == normalized:
+            if phone_no:
+                acc["phone"] = phone_no.strip()
+            if wechat_id:
+                acc["wechat"] = wechat_id.strip()
+            store.write_accounts(accounts)
+            return {"ok": True, "account": acc}
+    return {"ok": False, "msg": "这个车牌没有账户"}

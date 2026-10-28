@@ -16,6 +16,7 @@ FILE = os.path.join(DATA_DIR, "parking.json")
 LOG_FILE = os.path.join(DATA_DIR, "logs.json")
 ACCOUNT_FILE = os.path.join(DATA_DIR, "accounts.json")
 RECHARGE_FILE = os.path.join(DATA_DIR, "recharges.json")
+NOTIFICATION_FILE = os.path.join(DATA_DIR, "notifications.json")
 
 
 def _read_list(path):
@@ -101,6 +102,31 @@ def add_recharge(entry):
     record.update(entry)
     records.append(record)
     _write_list(RECHARGE_FILE, records)
+
+
+# ---------------------------------------------------------
+# 通知记录表（v0.3.1）
+# ---------------------------------------------------------
+# 催缴短信/微信的发送记录。每条记清楚「发给谁、发的是什么、什么时候发的」，
+# 这样催缴这个动作是可审计的 —— 出了纠纷能查。
+
+def read_notifications():
+    """读所有通知记录。"""
+    return _read_list(NOTIFICATION_FILE)
+
+
+def write_notifications(data):
+    """写所有通知记录。"""
+    _write_list(NOTIFICATION_FILE, data)
+
+
+def add_notification(entry):
+    """记一条通知发送记录。"""
+    records = read_notifications()
+    record = {"time": now_ms()}
+    record.update(entry)
+    records.append(record)
+    _write_list(NOTIFICATION_FILE, records)
 
 
 def now_ms():

@@ -29,8 +29,10 @@ if not os.path.exists(PY):
 
 sys.path.insert(0, ROOT)
 import account  # noqa: E402
+import notify  # noqa: E402
 import parking  # noqa: E402
 import plate as plate_mod  # noqa: E402
+import remind  # noqa: E402
 import store  # noqa: E402
 
 results = []
@@ -45,13 +47,32 @@ def check(name, ok, extra=""):
 # ============================================================
 
 def reset_data():
-    """把运行数据复位到 16 个空车位、0 条流水、0 个账户、0 条充值记录。"""
+    """把运行数据复位到 16 个空车位、0 条流水、0 个账户、0 条充值记录、0 条通知。"""
     store.write_all(parking.init_spots())
     os.makedirs(store.DATA_DIR, exist_ok=True)
     with open(store.LOG_FILE, "w", encoding="utf-8") as f:
         json.dump([], f, ensure_ascii=False, indent=2)
     store.write_accounts([])
     store.write_recharges([])
+    store.write_notifications([])
+
+
+def make_account(plate_no, kind=account.MONTHLY, holder="测试车主",
+                 days_left=None, phone_no="13800000000", wechat_id=""):
+    """造一个会员账户，可控到期时间。
+
+    days_left: 距离到期还有几天（None = 永久有效，0 = 今天到期，负数 = 已过期）
+    """
+    account.register(plate_no, kind, holder,
+                     phone_no=phone_no, wechat_id=wechat_id)
+    if days_left is not None:
+        accounts = store.read_accounts()
+        for a in accounts:
+            if a.get("plate") == plate_mod.normalize(plate_no):
+                a["expiresAt"] = store.now_ms() + days_left * account.DAY
+                break
+        store.write_accounts(accounts)
+    return account.find_by_plate(plate_no)
 
 
 def fee_at(minutes):
@@ -585,6 +606,360 @@ def test_deduct_balance():
 
 
 # ============================================================
+# 催缴（v0.3.1）
+# ============================================================
+
+def test_remind_stage_matching():
+    """催缴档位匹配：还剩几天就该发哪个档。
+
+    档位是**触发上界**，每个对应一个区间：
+      提前 7 天 → (3, 7]   提前 3 天 → (1, 3]
+      提前 1 天 → (0, 1]   今天到期 → (-∞, 0]
+    """
+    reset_data()
+    check("剩 7 天匹配提前 7 天档",
+          account.match_remind_stage(7)["days"] == 7)
+    check("剩 5 天匹配提前 7 天档",
+          account.match_remind_stage(5)["days"] == 7)
+    check("剩 4 天匹配提前 7 天档",
+          account.match_remind_stage(4)["days"] == 7)
+    check("剩 3 天匹配提前 3 天档",
+          account.match_remind_stage(3)["days"] == 3)
+    check("剩 2 天匹配提前 3 天档",
+          account.match_remind_stage(2)["days"] == 3)
+    check("剩 1 天匹配提前 1 天档",
+          account.match_remind_stage(1)["days"] == 1)
+    check("剩 0 天匹配今天到期档",
+          account.match_remind_stage(0)["days"] == 0)
+    check("剩 8 天不匹配（还没到催缴时间）",
+          account.match_remind_stage(8) is None)
+    check("剩 10 天不匹配（不该提前一周就催）",
+          account.match_remind_stage(10) is None)
+    check("已过期不匹配档位",
+          account.match_remind_stage(-1) is None)
+    check("永久有效账户不匹配档位",
+          account.match_remind_stage(None) is None)
+
+
+def test_days_left():
+    """剩余天数计算。"""
+    reset_data()
+    acc = make_account("黑A11111", days_left=5)
+    left = account.days_left(acc)
+    check("剩 5 天算出来是 5", left == 5, "实际 %s" % left)
+
+    # 23 小时后到期 → 算 1 天（今天到期档）
+    accounts = store.read_accounts()
+    accounts[0]["expiresAt"] = store.now_ms() + 23 * account.HOUR
+    store.write_accounts(accounts)
+    check("剩 23 小时算 1 天",
+          account.days_left(account.find_by_plate("黑A11111")) == 1)
+
+    # 已过期 3 天 → 负数
+    accounts = store.read_accounts()
+    accounts[0]["expiresAt"] = store.now_ms() - 3 * account.DAY
+    store.write_accounts(accounts)
+    left = account.days_left(account.find_by_plate("黑A11111"))
+    check("过期 3 天算 -3", left == -3, "实际 %s" % left)
+
+    # 永久有效
+    reset_data()
+    acc2 = make_account("黑A22222", days_left=None)
+    check("永久有效账户返回 None", account.days_left(acc2) is None)
+
+
+def test_pending_reminders():
+    """待催缴列表筛选。"""
+    reset_data()
+    make_account("黑A11111", days_left=5)     # 该催
+    make_account("黑A22222", days_left=30)    # 太远，不该催
+    make_account("黑A33333", days_left=-2)    # 已过期（宽限期内），不催
+    make_account("黑A44444", days_left=None)  # 永久有效，不该催
+
+    pending = account.pending_reminders(7)
+    plates = [p["account"]["plate"] for p in pending]
+    check("待催列表只有 1 个账户", len(pending) == 1, "实际 %d" % len(pending))
+    check("待催的是 5 天后到期那个", plates == ["黑A11111"], str(plates))
+
+    # 临时账号不该出现在待催列表
+    reset_data()
+    parking.handle_entry("黑A55555")
+    check("临时账号不进待催列表",
+          len(account.pending_reminders(30)) == 0)
+
+
+def test_remind_send():
+    """发送催缴。"""
+    reset_data()
+    make_account("黑A11111", days_left=5, phone_no="13800001111")
+
+    r = remind.send_reminder("黑A11111")
+    check("催缴发送成功", r.get("ok") is True, r.get("msg", ""))
+    check("发了 1 个渠道", len(r.get("sent", [])) == 1,
+          "实际 %d" % len(r.get("sent", [])))
+    check("文案含车牌", "黑A11111" in r.get("content", ""))
+    check("文案含到期日期", "2026" in r.get("content", ""))
+
+    # 通知记录留痕
+    notes = store.read_notifications()
+    check("通知记录已写入", len(notes) == 1, "实际 %d" % len(notes))
+    check("通知记录含接收方", notes[0]["target"] == "13800001111")
+    check("通知记录含渠道", notes[0]["channel"] == "sms")
+    check("通知记录标记为模拟发送", notes[0]["status"] == "simulated")
+
+
+def test_remind_dedupe():
+    """★ 去重：同一档位不能重复发。"""
+    reset_data()
+    make_account("黑A11111", days_left=5, phone_no="13800001111")
+
+    r1 = remind.send_reminder("黑A11111")
+    check("第一次发送成功", r1.get("ok") is True)
+
+    r2 = remind.send_reminder("黑A11111")
+    check("第二次被去重拦截", r2.get("ok") is False, str(r2.get("msg")))
+    check("拦截原因提到已催过", "催过" in r2.get("msg", ""), r2.get("msg", ""))
+    check("通知记录仍只有 1 条", len(store.read_notifications()) == 1,
+          "实际 %d" % len(store.read_notifications()))
+
+    # force 可以强制重发（催缴测试用）
+    r3 = remind.send_reminder("黑A11111", force=True)
+    check("force=True 能强制重发", r3.get("ok") is True, r3.get("msg", ""))
+    check("强制重发后记录变 2 条", len(store.read_notifications()) == 2,
+          "实际 %d" % len(store.read_notifications()))
+
+
+def test_remind_after_recharge():
+    """★ 续费后清空催缴记录，新周期重新开始。"""
+    reset_data()
+    make_account("黑A11111", days_left=5, phone_no="13800001111")
+
+    remind.send_reminder("黑A11111")
+    acc = account.find_by_plate("黑A11111")
+    check("发送后记下了催缴档位",
+          account.has_reminded(acc, account.match_remind_stage(5)["days"]))
+
+    # 续费
+    account.recharge("黑A11111", account.MONTHLY, 1)
+    acc2 = account.find_by_plate("黑A11111")
+    check("续费后清空催缴记录",
+          not account.has_reminded(acc2, account.match_remind_stage(5)["days"]))
+    check("续费后提醒字段是空字典", acc2.get("reminded") == {},
+          str(acc2.get("reminded")))
+
+    # 续费后到期时间延后，剩余天数超过催缴范围，所以暂时不用催了
+    # （这是正确行为 —— 刚续了费还去催，是骚扰）
+    r = remind.send_reminder("黑A11111")
+    check("续费后不再催（剩余天数超出范围）", r.get("ok") is False,
+          str(r.get("msg")))
+    check("失败原因提到还没到催缴时间",
+          "催缴时间" in r.get("msg", ""), r.get("msg", ""))
+
+
+def test_remind_no_contact():
+    """没有联系方式发不出去。"""
+    reset_data()
+    make_account("黑A11111", days_left=5, phone_no="", wechat_id="")
+
+    r = remind.send_reminder("黑A11111")
+    check("缺联系方式催缴失败", r.get("ok") is False)
+    check("失败原因提到联系方式", "手机号" in r.get("msg", ""), r.get("msg", ""))
+    check("没发出任何消息", len(store.read_notifications()) == 0)
+
+
+def test_remind_expired_not_prompted():
+    """已过期的账户不再催缴（宽限期内、过宽限期都不催）。"""
+    reset_data()
+    # 过了宽限期
+    make_account("黑A11111", days_left=-200, phone_no="13800001111")
+    check("过宽限期的账户不在待催列表",
+          len(account.pending_reminders(30)) == 0)
+    r = remind.send_reminder("黑A11111")
+    check("过宽限期账户催缴失败", r.get("ok") is False)
+    check("失败原因提到宽限期", "宽限期" in r.get("msg", ""), r.get("msg", ""))
+    check("没发出任何消息", len(store.read_notifications()) == 0)
+
+
+def test_contact_setter():
+    """补手机号 / 微信号。"""
+    reset_data()
+    make_account("黑A11111", days_left=5, phone_no="", wechat_id="")
+
+    r = account.set_contact("黑A11111", phone_no="13812345678")
+    check("补手机号成功", r.get("ok") is True, r.get("msg", ""))
+    acc = account.find_by_plate("黑A11111")
+    check("手机号已保存", acc.get("phone") == "13812345678")
+
+    r2 = account.set_contact("黑A11111", wechat_id="wx_abc")
+    check("补微信号成功", r2.get("ok") is True)
+    acc2 = account.find_by_plate("黑A11111")
+    check("微信号已保存", acc2.get("wechat") == "wx_abc")
+    check("补微信号不会清掉手机号", acc2.get("phone") == "13812345678")
+
+    # 现在能发到两个渠道
+    r3 = remind.send_reminder("黑A11111")
+    check("两个渠道都发", len(r3.get("sent", [])) == 2,
+          "实际 %d" % len(r3.get("sent", [])))
+
+
+# ============================================================
+# ★ 宽限期 + 过期账户注销（v0.3.1）
+# ============================================================
+
+def test_grace_period():
+    """★ 宽限期：过期后账户保留 180 天。"""
+    reset_data()
+    # 过期 2 天 —— 还在宽限期内
+    acc = make_account("黑A11111", days_left=-2)
+    check("过期 2 天算在宽限期内", account.in_grace(acc) is True)
+    check("过期 2 天不算待清理", account.is_obsolete(acc) is False)
+    g_left = account.grace_days_left(acc)
+    check("宽限期还剩约 178 天", 175 <= g_left <= 180, "实际 %s" % g_left)
+
+    # 过期 200 天 —— 过了宽限期
+    acc2 = make_account("黑A22222", days_left=-200)
+    check("过期 200 天不在宽限期内", account.in_grace(acc2) is False)
+    check("过期 200 天算待清理", account.is_obsolete(acc2) is True)
+    check("宽限期剩余为负", account.grace_days_left(acc2) < 0)
+
+    # 没过期的不算宽限期
+    acc3 = make_account("黑A33333", days_left=10)
+    check("未过期不在宽限期内", account.in_grace(acc3) is False)
+    check("未过期不算待清理", account.is_obsolete(acc3) is False)
+
+    # 永久有效不在宽限期内
+    acc4 = make_account("黑A44444", days_left=None)
+    check("永久有效不在宽限期内", account.in_grace(acc4) is False)
+
+
+def test_grace_not_prompted():
+    """★ 宽限期内不催缴。"""
+    reset_data()
+    make_account("黑A11111", days_left=-10, phone_no="13800001111")
+
+    check("宽限期内账户不在待催列表",
+          len(account.pending_reminders(30)) == 0)
+
+    r = remind.send_reminder("黑A11111")
+    check("宽限期内催缴被拒绝", r.get("ok") is False)
+    check("拒绝原因提到宽限期", "宽限期" in r.get("msg", ""), r.get("msg", ""))
+    check("没发出任何消息", len(store.read_notifications()) == 0)
+
+
+def test_grace_recharge_restores():
+    """★ 宽限期内续费 → 恢复会员身份，余额保留。"""
+    reset_data()
+    make_account("黑A11111", days_left=-30)
+    # 给它 500 余额
+    accounts = store.read_accounts()
+    for a in accounts:
+        if a.get("plate") == "黑A11111":
+            a["balance"] = 500
+    store.write_accounts(accounts)
+
+    r = account.recharge("黑A11111", account.MONTHLY, 1)
+    check("宽限期内续费成功", r.get("ok") is True, r.get("msg", ""))
+    check("标记为已恢复会员", r.get("restored") is True)
+
+    acc = account.find_by_plate("黑A11111")
+    check("续费后不再过期", account.is_expired(acc) is False)
+    check("续费后不在宽限期", account.in_grace(acc) is False)
+    check("余额累加而不是重置", acc.get("balance") == 800,
+          "实际 %s" % acc.get("balance"))
+
+    # 恢复后能按会员通道入场
+    e = parking.handle_entry("黑A11111")
+    check("恢复后入场走会员通道", e.get("channel") == "member",
+          str(e.get("channel")))
+    ex = parking.handle_exit("黑A11111")
+    check("恢复后出场费用为 0", ex.get("fee") == 0, str(ex.get("fee")))
+
+
+def test_expired_member_removed_on_exit():
+    """★ 过了宽限期的会员账户，车辆出场后账户要删掉。"""
+    reset_data()
+    make_account("黑A11111", days_left=-200)   # 过期 200 天，早过了宽限期
+
+    # 入场：过期账户按临停处理
+    r = parking.handle_entry("黑A11111")
+    check("过期账户入场按临停通道", r.get("channel") == "temp",
+          str(r.get("channel")))
+
+    # 出场缴费后，账户应被删除
+    p = parking.handle_pay("黑A11111")
+    check("出场成功", p.get("ok") is True, p.get("msg", ""))
+    check("过宽限期的账户被删除", p.get("expired_removed") is not None)
+    check("账户已不存在", account.find_by_plate("黑A11111") is None)
+
+    # 下次再来就是陌生车，按临停
+    r2 = parking.handle_entry("黑A11111")
+    check("下次入场仍是临停通道", r2.get("channel") == "temp",
+          str(r2.get("channel")))
+
+
+def test_grace_account_kept_on_exit():
+    """★ 宽限期内的账户，出场后要保留。"""
+    reset_data()
+    make_account("黑A11111", days_left=-30)   # 还在宽限期
+
+    parking.handle_entry("黑A11111")
+    p = parking.handle_pay("黑A11111")
+    check("出场成功", p.get("ok") is True)
+    check("宽限期内账户被保留", p.get("kept_in_grace") is True)
+    check("账户还在", account.find_by_plate("黑A11111") is not None)
+    check("没有被删除", p.get("expired_removed") is None)
+
+
+def test_valid_member_kept_on_exit():
+    """★ 有效会员账户出场后要保留。"""
+    reset_data()
+    make_account("黑A11111", days_left=10)
+
+    parking.handle_entry("黑A11111")
+    p = parking.handle_pay("黑A11111")
+    check("有效会员出场成功", p.get("ok") is True)
+    check("有效会员账户没被删", account.find_by_plate("黑A11111") is not None)
+    check("没有过期账户删除记录", p.get("expired_removed") is None)
+    check("不算宽限期内保留", p.get("kept_in_grace") is False)
+
+
+def test_expired_member_balance_traced():
+    """★ 账户被注销时，余额要留痕，不能凭空消失。"""
+    reset_data()
+    make_account("黑A11111", days_left=-200)
+    # 给它加 500 余额
+    accounts = store.read_accounts()
+    for a in accounts:
+        if a.get("plate") == "黑A11111":
+            a["balance"] = 500
+    store.write_accounts(accounts)
+
+    parking.handle_entry("黑A11111")
+    parking.handle_pay("黑A11111")
+
+    logs = store.read_logs()
+    remove_logs = [l for l in logs if l.get("type") == "remove"]
+    check("记了一条账户注销流水", len(remove_logs) == 1,
+          "实际 %d" % len(remove_logs))
+    if remove_logs:
+        check("注销流水记了余额 500", remove_logs[0].get("balance") == 500,
+              str(remove_logs[0].get("balance")))
+        check("注销流水记了原因", "过期" in remove_logs[0].get("reason", ""),
+              remove_logs[0].get("reason", ""))
+
+
+def test_temp_account_still_removed():
+    """临停临时账号照常删除（v0.2.2 的行为不能被破坏）。"""
+    reset_data()
+    parking.handle_entry("黑A55555")
+    check("临停车入场建了临时账号",
+          account.find_by_plate("黑A55555") is not None)
+    parking.handle_pay("黑A55555")
+    check("临停车出场删了临时账号",
+          account.find_by_plate("黑A55555") is None)
+
+
+# ============================================================
 # B. HTTP 端到端测试
 # ============================================================
 
@@ -784,7 +1159,67 @@ def test_http():
         check("车主端有充值入口", 'href="/recharge"' in text)
 
         # ====================================================
-        # 26. 手机端适配（v0.3）
+        # 26. 催缴（v0.3.1）
+        # ====================================================
+        status, text = get("/remind")
+        check("GET /remind 200", status == 200, "status=%d" % status)
+        check("催缴页含规则说明", "催缴规则" in text)
+        check("催缴页含一键催缴按钮", "一键催缴" in text)
+        check("催缴页含补联系方式表单", 'action="/remind/contact"' in text)
+
+        # 造一个 5 天后到期、带手机号的账户
+        reset_data()
+        account.register("黑A88888", account.MONTHLY, "催缴测试",
+                         phone_no="13800008888")
+        accounts = store.read_accounts()
+        for a in accounts:
+            if a.get("plate") == "黑A88888":
+                a["expiresAt"] = store.now_ms() + 5 * account.DAY
+        store.write_accounts(accounts)
+
+        status, text = get("/remind")
+        check("催缴页列出待催账户", "黑A88888" in text)
+        check("催缴页显示剩余天数", "剩余" in text)
+        check("催缴页显示手机号", "13800008888" in text)
+
+        # 发送催缴
+        status, url, text = post("/remind/send/one", {"plate": "黑A88888"})
+        check("POST /remind/send/one 发送成功",
+              status == 200 and "ok=" in url, url)
+
+        # 通知记录已生成
+        notes = store.read_notifications()
+        check("生成了一条通知记录", len(notes) == 1, "实际 %d" % len(notes))
+        if notes:
+            check("通知记录含短信渠道", notes[0]["channel"] == "sms")
+            check("通知记录标记模拟发送", notes[0]["status"] == "simulated")
+
+        status, text = get("/remind")
+        check("催缴页显示发送记录", "发送记录" in text)
+        check("发送记录含接收方", "13800008888" in text)
+
+        # 重复发送被去重
+        status, url, text = post("/remind/send/one", {"plate": "黑A88888"})
+        check("重复催缴被拦截", status == 200 and "msg=" in url, url)
+        check("重复后通知记录仍是 1 条", len(store.read_notifications()) == 1,
+              "实际 %d" % len(store.read_notifications()))
+
+        # 批量催缴
+        status, url, text = post("/remind/send", {"days": "7"})
+        check("POST /remind/send 批量催缴有响应",
+              status == 200 and "ok=" in url, url)
+
+        # 补联系方式
+        status, url, text = post("/remind/contact",
+                                  {"plate": "黑A88888", "phone": "13900009999"})
+        check("POST /remind/contact 保存成功",
+              status == 200 and "ok=" in url, url)
+        acc = account.find_by_plate("黑A88888")
+        check("手机号已更新", acc.get("phone") == "13900009999",
+              str(acc.get("phone")))
+
+        # ====================================================
+        # 27. 手机端适配（v0.3）
         # ====================================================
         # 这里查的是「源码里该有的东西有没有」，真正的像素级效果
         # 用 CDP 设备模拟截图人工确认过（390px / 320px 两个视口）。
@@ -799,10 +1234,12 @@ def test_http():
         # 27. 表格卡片化：关键表格的 td 必须带 data-label，
         #     否则手机端转成卡片后就没有字段名了
         status, text = get("/accounts")
-        check("账户列表 td 带 data-label", text.count('data-label=') >= 7,
+        check("账户列表 td 带 data-label", text.count('data-label=') >= 8,
               "实际 %d 处" % text.count('data-label='))
         check("账户列表表头含车牌列", ">车牌<" in text)
 
+        # 流水表：得先有流水才有行，data-label 是渲染在行里的
+        parking.handle_entry("黑A12345")
         status, text = get("/admin")
         check("流水表 td 带 data-label", text.count('data-label=') >= 7,
               "实际 %d 处" % text.count('data-label='))
@@ -876,6 +1313,27 @@ def main():
     test_expired_member_downgrades()
     test_member_not_charged()
     test_deduct_balance()
+
+    print("=== 催缴测试（v0.3.1） ===")
+    test_remind_stage_matching()
+    test_days_left()
+    test_pending_reminders()
+    test_remind_send()
+    test_remind_dedupe()
+    test_remind_after_recharge()
+    test_remind_no_contact()
+    test_remind_expired_not_prompted()
+    test_contact_setter()
+
+    print("=== 过期账户注销测试（v0.3.1） ===")
+    test_grace_period()
+    test_grace_not_prompted()
+    test_grace_recharge_restores()
+    test_expired_member_removed_on_exit()
+    test_grace_account_kept_on_exit()
+    test_valid_member_kept_on_exit()
+    test_expired_member_balance_traced()
+    test_temp_account_still_removed()
 
     test_http()
 

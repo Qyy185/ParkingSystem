@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>地下停车场 · 催缴管理</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap wide">
+  <header class="head">
+    <h1>催缴管理</h1>
+    <p class="sub">会员租期到期前提醒续费 · 短信 / 微信双渠道（当前为模拟发送）</p>
+  </header>
+
+  <div class="nav-links">
+    <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
+    <a class="nav-link" href="{{ url_for('scan') }}">扫码入场</a>
+    <a class="nav-link" href="{{ url_for('accounts') }}">账户管理</a>
+    <a class="nav-link" href="{{ url_for('recharge') }}">充值</a>
+    <a class="nav-link" href="{{ url_for('admin') }}">管理后台</a>
+  </div>
+
+  {% if msg %}
+  <div class="alert alert-err">{{ msg }}</div>
+  {% endif %}
+  {% if ok_msg %}
+  <div class="alert alert-ok">{{ ok_msg }}</div>
+  {% endif %}
+
+  <section class="card">
+    <div class="stat-row cols-4">
+      <div class="stat"><span class="num">{{ stats.pending }}</span><span class="lbl">需提醒账户</span></div>
+      <div class="stat"><span class="num busy">{{ stats.unsent }}</span><span class="lbl">待发送</span></div>
+      <div class="stat"><span class="num free">{{ stats.sent }}</span><span class="lbl">本档已催</span></div>
+      <div class="stat"><span class="num money">{{ stats.noContact }}</span><span class="lbl">缺联系方式</span></div>
+    </div>
+    {% if stats.inGrace or stats.obsolete %}
+    <p class="tip">
+      另有 {{ stats.inGrace }} 个账户已过期但在<b>宽限期</b>内（不催缴，续费可恢复会员），
+      {{ stats.obsolete }} 个已过宽限期（车辆下次出场时注销）。
+    </p>
+    {% endif %}
+  </section>
+
+  <!-- 催缴规则说明 -->
+  <section class="card">
+    <h2>催缴规则</h2>
+    <p class="tip" style="text-align: left; padding-top: 0;">
+      租期到期前 <strong>7 天 / 3 天 / 1 天 / 当天</strong> 各提醒一次，
+      每个档位只发一次，不会重复骚扰。续费后新周期重新开始提醒。<br>
+      已过期的账户<b>不再催缴</b>，按临停计费。过期后账户保留
+      <strong>{{ grace_days }} 天宽限期</strong>，期内续费可恢复会员身份、余额保留；
+      宽限期满仍未续费的，车辆下次出场时账户自动注销。
+    </p>
+
+    <form method="post" action="{{ url_for('remind_send') }}" class="remind-toolbar">
+      <div class="inline-form">
+        <label class="inline-label">
+          催缴范围
+          <select name="days">
+            <option value="3" {% if within == 3 %}selected{% endif %}>未来 3 天</option>
+            <option value="7" {% if within == 7 %}selected{% endif %}>未来 7 天</option>
+            <option value="15" {% if within == 15 %}selected{% endif %}>未来 15 天</option>
+            <option value="30" {% if within == 30 %}selected{% endif %}>未来 30 天</option>
+          </select>
+        </label>
+        <label class="inline-label">
+          发送渠道
+          <select name="channel">
+            <option value="">全部渠道</option>
+            {% for ch in channels %}
+            <option value="{{ ch.id }}">{{ ch.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="btn primary" type="submit">一键催缴</button>
+      </div>
+    </form>
+    <p class="tip">
+      当前为<b>模拟发送</b>：不会真的发短信，每条消息都会完整记录到下方的发送记录里。
+      接真实服务商只需替换 <code>notify.py</code> 里的渠道实现。
+    </p>
+  </section>
+
+  <!-- 待催缴列表 -->
+  <section class="card">
+    <h2>待催缴账户</h2>
+    {% if pending %}
+    <div class="remind-list">
+      {% for item in pending %}
+      <div class="remind-item {{ 'is-done' if item.reminded else '' }}">
+        <div class="remind-main">
+          <div class="remind-plate">
+            {{ item.account.plate }}
+            <span class="kind-badge {{ item.account.kind }}">{{ item.account.kind | kind_label }}</span>
+            {% if item.reminded %}
+            <span class="kind-badge temp">本档已催</span>
+            {% endif %}
+          </div>
+          <div class="remind-meta">
+            {{ item.account.holder or '未登记车主' }} ·
+            剩余 <strong class="{{ 'urgent' if item.daysLeft <= 1 else '' }}">{{ item.daysLeft }}</strong> 天 ·
+            {{ item.stage.label }} · 到期 {{ item.expireDate }}
+          </div>
+          <div class="remind-targets">
+            {% if item.targets %}
+              {% for t in item.targets %}
+              <span class="channel-tag">{{ t.channel | channel_label }} · {{ t.target }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="kind-badge temp">缺手机号 / 微信号，无法发送</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="remind-actions">
+          <form method="post" action="{{ url_for('remind_send_one') }}">
+            <input type="hidden" name="plate" value="{{ item.account.plate }}">
+            <input type="hidden" name="force" value="{% if item.reminded %}1{% else %}0{% endif %}">
+            <button class="btn" type="submit">
+              {% if item.reminded %}再催一次{% else %}立即催缴{% endif %}
+            </button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="tip">未来 {{ within }} 天内没有需要催缴的账户 👍</p>
+    {% endif %}
+  </section>
+
+  <!-- 补联系方式 -->
+  <section class="card">
+    <h2>补联系方式</h2>
+    <p class="tip" style="text-align: left; padding-top: 0;">
+      没填手机号 / 微信号的账户发不出催缴消息，在这里补上。
+    </p>
+    <form method="post" action="{{ url_for('remind_contact') }}">
+      <div class="inline-form">
+        <input class="input" type="text" name="plate" placeholder="车牌号，如 黑A12345"
+               maxlength="12" autocomplete="off" required>
+        <input class="input" type="tel" name="phone" placeholder="手机号（选填）"
+               maxlength="20" autocomplete="off">
+        <input class="input" type="text" name="wechat" placeholder="微信号（选填）"
+               maxlength="40" autocomplete="off">
+        <button class="btn primary" type="submit">保存</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- 发送记录 -->
+  {% if notifications %}
+  <section class="card">
+    <h2>发送记录</h2>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th>时间</th><th>渠道</th><th>接收方</th><th>内容</th><th>状态</th></tr>
+        </thead>
+        <tbody>
+          {% for n in notifications %}
+          <tr>
+            <td data-label="时间">{{ n.time | fmt_time }}</td>
+            <td data-label="渠道">{{ n.channel | channel_label }}</td>
+            <td data-label="接收方" class="plate">{{ n.target }}</td>
+            <td data-label="内容" class="remind-msg">{{ n.content }}</td>
+            <td data-label="状态">
+              <span class="kind-badge temp">模拟已发送</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  <footer class="foot">
+    <a href="{{ url_for('index') }}">← 返回车主端</a>
+    ·
+    <a href="{{ url_for('accounts') }}">账户管理</a>
+  </footer>
+</div>
+</body>
+</html>

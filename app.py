@@ -14,8 +14,10 @@ import time
 from flask import Flask, redirect, render_template, request, url_for
 
 import account
+import notify
 import parking
 import plate
+import remind
 import store
 
 app = Flask(__name__)
@@ -65,6 +67,10 @@ def fmt_duration(minutes):
 app.jinja_env.filters["fmt_time"] = fmt_time
 app.jinja_env.filters["fmt_date"] = fmt_date
 app.jinja_env.filters["fmt_duration"] = fmt_duration
+app.jinja_env.filters["kind_label"] = account.kind_label
+app.jinja_env.filters["channel_label"] = notify.channel_label
+app.jinja_env.filters["in_grace"] = account.in_grace
+app.jinja_env.filters["grace_until"] = account.grace_until
 
 
 # ----------------------------------------------------------
@@ -298,8 +304,9 @@ def account_add():
     kind = request.form.get("kind") or account.TEMPORARY
     holder = request.form.get("holder") or ""
     note = request.form.get("note") or ""
+    phone_no = request.form.get("phone") or ""
 
-    result = account.register(raw, kind, holder, note)
+    result = account.register(raw, kind, holder, note, phone_no=phone_no)
     if not result.get("ok"):
         return redirect(url_for("accounts", msg=result.get("msg", "登记失败")))
 
@@ -448,6 +455,107 @@ def recharge_do():
         "recharge", plate=plate_no, kind=kind,
         ok=f"充值成功 {result['amount']} 元，余额 {acc['balance']} 元，"
            f"有效期至 {fmt_date(result['expiresAt'])}"))
+
+
+# ----------------------------------------------------------
+#  催缴（v0.3.1）
+# ----------------------------------------------------------
+# 会员租期快到期时主动提醒续费。
+#   · /remind            催缴管理页：谁要催、催了没、发送记录
+#   · /remind/send       批量发送（可选渠道）
+#   · /remind/send/one   单个账户发送
+#   · /remind/contact    补手机号 / 微信号
+#
+# 消息当前走「模拟渠道」：不真发短信，但完整记录到
+# data/notifications.json，页面上能看到「发给谁、发的是什么」。
+
+@app.route("/remind")
+def remind_page():
+    """催缴管理页。"""
+    try:
+        within = int(request.args.get("days") or 7)
+    except ValueError:
+        within = 7
+    if within not in (3, 7, 15, 30):
+        within = 7
+
+    pending = account.pending_reminders(within)
+    notifications = list(reversed(store.read_notifications()))
+
+    # 统计
+    # 「待催」= 需要提醒的账户总数
+    # 「未发送」= 这些账户里当前档位还没催过的（真正要动手的）
+    # 「本档已催」= 当前档位已经催过、不用再发的
+    stats = {
+        "pending": len(pending),
+        "unsent": len([p for p in pending if not p["reminded"]]),
+        "sent": len([p for p in pending if p["reminded"]]),
+        "noContact": len([p for p in pending if not p["targets"]]),
+        "totalSent": len(notifications),
+    }
+
+    # 宽限期状态（v0.3.1）：不在待催列表里，但要在页面上说明白
+    acc_stats = account.stats()
+    stats["inGrace"] = acc_stats.get("inGrace", 0)
+    stats["obsolete"] = acc_stats.get("obsolete", 0)
+
+    return render_template(
+        "remind.html",
+        pending=pending,
+        notifications=notifications,
+        stats=stats,
+        within=within,
+        channels=notify.available_channels(),
+        grace_days=account.GRACE_DAYS,
+        msg=request.args.get("msg", ""),
+        ok_msg=request.args.get("ok", ""),
+    )
+
+
+@app.route("/remind/send", methods=["POST"])
+def remind_send():
+    """批量发送催缴。"""
+    channel_id = (request.form.get("channel") or "").strip() or None
+    try:
+        within = int(request.form.get("days") or 7)
+    except ValueError:
+        within = 7
+
+    result = remind.send_all_reminders(within, channel_id)
+    ok_msg = "催缴完成：发送 %d 个，跳过 %d 个（共 %d 个待催）" % (
+        result["sent"], result["skipped"], result["total"])
+    return redirect(url_for("remind_page", days=within, ok=ok_msg))
+
+
+@app.route("/remind/send/one", methods=["POST"])
+def remind_send_one():
+    """给单个账户发催缴。"""
+    raw = (request.form.get("plate") or "").strip()
+    channel_id = (request.form.get("channel") or "").strip() or None
+    force = request.form.get("force") == "1"
+
+    result = remind.send_reminder(raw, channel_id, force)
+    if result.get("ok"):
+        ok_msg = "已给 %s 发送催缴（%d 渠道）" % (
+            plate.normalize(raw), len(result.get("sent", [])))
+        return redirect(url_for("remind_page", ok=ok_msg))
+    return redirect(url_for("remind_page", msg=result.get("msg", "发送失败")))
+
+
+@app.route("/remind/contact", methods=["POST"])
+def remind_contact():
+    """给账户补手机号 / 微信号。"""
+    raw = (request.form.get("plate") or "").strip()
+    phone_no = (request.form.get("phone") or "").strip()
+    wechat_id = (request.form.get("wechat") or "").strip()
+
+    if not phone_no and not wechat_id:
+        return redirect(url_for("remind_page", msg="手机号和微信号至少填一个"))
+
+    result = account.set_contact(raw, phone_no, wechat_id)
+    if not result.get("ok"):
+        return redirect(url_for("remind_page", msg=result.get("msg", "保存失败")))
+    return redirect(url_for("remind_page", ok="已保存 %s 的联系方式" % result["account"]["plate"]))
 
 
 # ----------------------------------------------------------

@@ -17,6 +17,7 @@
     <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
     <a class="nav-link" href="{{ url_for('scan') }}">扫码入场</a>
     <a class="nav-link" href="{{ url_for('recharge') }}">充值</a>
+    <a class="nav-link" href="{{ url_for('remind_page') }}">催缴</a>
     <a class="nav-link" href="{{ url_for('admin') }}">管理后台</a>
   </div>
 
@@ -35,8 +36,11 @@
       <div class="stat"><span class="num busy">{{ stats.temporary }}</span><span class="lbl">临停(在场)</span></div>
       <div class="stat"><span class="num money">{{ stats.balance }}</span><span class="lbl">余额合计(元)</span></div>
     </div>
-    {% if stats.expired %}
-    <p class="tip">其中 {{ stats.expired }} 个会员账户已过期，按临停计费。</p>
+    {% if stats.inGrace %}
+    <p class="tip">其中 {{ stats.inGrace }} 个账户已过期但在<b>宽限期</b>内，续费可恢复会员。</p>
+    {% endif %}
+    {% if stats.obsolete %}
+    <p class="tip">其中 {{ stats.obsolete }} 个账户已过宽限期，车辆下次出场时将自动注销。</p>
     {% endif %}
   </section>
 
@@ -52,6 +56,8 @@
         </select>
         <input class="input" type="text" name="holder" placeholder="车主姓名（选填）"
                maxlength="20" autocomplete="off">
+        <input class="input" type="tel" name="phone" placeholder="手机号（选填，催缴用）"
+               maxlength="20" autocomplete="off">
         <input class="input" type="text" name="note" placeholder="备注（选填）"
                maxlength="40" autocomplete="off">
         <button class="btn primary" type="submit">登记</button>
@@ -59,7 +65,8 @@
     </form>
     <p class="tip">
       临停车辆不需要登记 —— 入场时系统自动建临时账号，出场后自动删除。<br>
-      长期账户的余额和有效期通过<a href="{{ url_for('recharge') }}">充值页</a>管理。
+      长期账户的余额和有效期通过<a href="{{ url_for('recharge') }}">充值页</a>管理，
+      租期到期前会通过<a href="{{ url_for('remind_page') }}">催缴页</a>提醒续费。
     </p>
   </section>
 
@@ -69,7 +76,7 @@
       <table class="table">
         <thead>
           <tr>
-            <th>车牌</th><th>类型</th><th>车主</th><th>余额</th>
+            <th>车牌</th><th>类型</th><th>车主</th><th>联系方式</th><th>余额</th>
             <th>有效期</th><th>备注</th><th>操作</th>
           </tr>
         </thead>
@@ -80,11 +87,27 @@
               <td class="plate" data-label="车牌">{{ acc.plate }}</td>
               <td data-label="类型">
                 <span class="kind-badge {{ acc.kind }}">{{ kind_label(acc.kind) }}</span>
-                {% if is_expired(acc) %}<span class="kind-badge temp">已过期</span>{% endif %}
+                {% if is_expired(acc) %}
+                  {% if acc | in_grace %}
+                  <span class="kind-badge temp">宽限期内</span>
+                  {% else %}
+                  <span class="kind-badge temp">已过期</span>
+                  {% endif %}
+                {% endif %}
               </td>
               <td data-label="车主">{{ acc.holder or '—' }}</td>
+              <td data-label="联系方式">
+                {% if acc.phone %}<span class="channel-tag">{{ acc.phone }}</span>{% endif %}
+                {% if acc.wechat %}<span class="channel-tag">微信 {{ acc.wechat }}</span>{% endif %}
+                {% if not acc.phone and not acc.wechat %}<span class="kind-badge temp">未填写</span>{% endif %}
+              </td>
               <td data-label="余额">{{ acc.balance or 0 }} 元</td>
-              <td data-label="有效期">{{ acc.expiresAt | fmt_date }}</td>
+              <td data-label="有效期">
+                {{ acc.expiresAt | fmt_date }}
+                {% if acc | in_grace %}
+                <br><span class="grace-tip">宽限至 {{ acc | grace_until | fmt_date }}</span>
+                {% endif %}
+              </td>
               <td data-label="备注">{{ acc.note or '—' }}</td>
               <td class="actions" data-label="操作">
                 {% if acc.kind != 'temporary' %}
@@ -106,7 +129,7 @@
             </tr>
             {% endfor %}
           {% else %}
-            <tr><td colspan="7" class="tip">还没有账户</td></tr>
+            <tr><td colspan="8" class="tip">还没有账户</td></tr>
           {% endif %}
         </tbody>
       </table>

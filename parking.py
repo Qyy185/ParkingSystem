@@ -242,6 +242,24 @@ def handle_exit(plate_no):
 #
 # ★ 临时账号（v0.2.2）：临停车缴费出场后删掉临时账号。
 #   会员账户保留 —— 会员下次来还是会员。
+#
+# ★ 过期会员账户（v0.3.1）：**过了宽限期的会员账户要删**。
+#   场景：车主 1 号交了一个月租，2 号租期就过了；车 3 号才开走。
+#
+#   ★ 宽限期（v0.3.1）：过期后**不立刻删**，先留半年。
+#     · 宽限期内 → 账户保留，余额保留，续费可恢复会员身份
+#     · 宽限期满仍未续费 → 车辆下次出场时注销
+#
+#   怎么区分「要删的」和「要留的」？
+#   · 有效会员走 member 通道，压根不会进这段删除逻辑
+#   · 过期会员入场时被 classify() 判成临停，走 temp 通道
+#   · 所以在 temp 通道里再查一次账户：
+#       - kind 是 monthly/yearly 且**过了宽限期** → 删
+#       - kind 是 monthly/yearly 但**还在宽限期** → 保留
+#       - kind 是 temporary → 删（临时账号的老规矩）
+#
+#   ⚠️ 删之前要把余额记进流水。账户一删余额就没了，
+#     不留痕的话这笔钱就凭空消失了。
 # ============================================================
 def handle_pay(plate_no):
     normalized = plate.normalize(plate_no)
@@ -261,12 +279,38 @@ def handle_pay(plate_no):
 
     # 临停车出场 → 删掉它的临时账号（会员账户不动）
     temp_removed = None
+    expired_removed = None
+    kept_in_grace = False
     if channel == "temp":
-        r = account.remove_temp_account(normalized)
-        temp_removed = r.get("removed")
+        acc = account.find_by_plate(normalized)
+        if acc is not None and account.is_member_kind(acc.get("kind")):
+            if account.is_obsolete(acc):
+                # ★ 过了宽限期 → 出库即注销（v0.3.1）
+                balance = int(acc.get("balance") or 0)
+                r = account.remove(normalized)
+                expired_removed = r.get("removed")
+                # 余额留痕 —— 账户删了钱不能凭空消失
+                if expired_removed is not None:
+                    store.add_log({
+                        "type": "remove",
+                        "plate": normalized,
+                        "spot": spot["id"],
+                        "fee": 0,
+                        "channel": channel,
+                        "balance": balance,
+                        "reason": "租期过期且已过宽限期，出场时账户注销",
+                    })
+            else:
+                # 还在宽限期 → 账户保留，续费可恢复会员
+                kept_in_grace = True
+        else:
+            r = account.remove_temp_account(normalized)
+            temp_removed = r.get("removed")
 
     return {"ok": True, "fee": fee, "channel": channel,
-            "temp_removed": temp_removed}
+            "temp_removed": temp_removed,
+            "expired_removed": expired_removed,
+            "kept_in_grace": kept_in_grace}
 
 
 
