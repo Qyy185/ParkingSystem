@@ -33,6 +33,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
+    # ★ 并发控制（2026-10-28 加）：
+    #   之前同时能跑多个 run，每个都开一条隧道，
+    #   tunnel-url.txt 被后一个覆盖，地址和实际跑着的对不上。
+    #   现在排队执行，新 run 会把旧的取消掉 —— 保证「文件里的地址」
+    #   和「真正活着的地址」永远是同一个。
+    concurrency:
+      group: parking-deploy
+      cancel-in-progress: true
+
     # 需要写权限：把公网地址同步回 tunnel-url.txt
     permissions:
       contents: write
@@ -52,13 +61,60 @@ jobs:
           chmod +x cloudflared
           ./cloudflared --version
 
+      # ★★ 决定用哪个访问口令（2026-10-28 加）
+      #
+      #   背景：访问口令原本只从仓库 Secret 读。Secret 只能在 GitHub 网页上
+      #   手动添加（Settings → Security → Secrets and variables → Actions），
+      #   入口很深、很多人找不到，于是经常就这么裸跑 —— 公网上任何人拿到
+      #   链接都能进后台改数据。
+      #
+      #   现在的逻辑：
+      #     · 配了 ACCESS_PWD Secret → 用它（你自己定的口令，稳定不变）
+      #     · 没配 → **自动生成一个随机强口令**，写进本次运行的任务摘要
+      #     · 两种情况都不是「完全公开」
+      #
+      #   这样即使一次 Secret 都没配，公网地址也是有口令保护的，
+      #   口令直接显示在 Actions 摘要里。
+      - name: 决定访问口令
+        env:
+          SECRET_ACCESS_PWD: ${{ secrets.ACCESS_PWD }}
+          SECRET_SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        run: |
+          if [ -n "$SECRET_ACCESS_PWD" ]; then
+            echo "ACCESS_PWD=$SECRET_ACCESS_PWD" >> $GITHUB_ENV
+            echo "PWD_SOURCE=仓库 Secret（你自己设的）" >> $GITHUB_ENV
+            echo "✅ 使用仓库 Secret 里的访问口令"
+          else
+            # 没有 Secret：生成一个 16 位随机口令
+            # 用 openssl 而不是 $RANDOM —— 后者每台机器的种子不同，
+            # 但强度不够。16 位 base64 约 96 bit 熵，暴力猜不动。
+            PWD=$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16)
+            echo "ACCESS_PWD=$PWD" >> $GITHUB_ENV
+            echo "PWD_SOURCE=本次运行自动生成的随机口令" >> $GITHUB_ENV
+            echo "⚠️ 未配置 ACCESS_PWD Secret，本次自动生成随机口令"
+          fi
+
+          # SECRET_KEY 同理：没配就生成一个随机的（app.py 也会自己兜底，
+          # 但这里生成能保证多次重启 session 不失效）
+          if [ -n "$SECRET_SECRET_KEY" ]; then
+            echo "SECRET_KEY=$SECRET_SECRET_KEY" >> $GITHUB_ENV
+            echo "✅ 使用仓库 Secret 里的 session 密钥"
+          else
+            KEY=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
+            echo "SECRET_KEY=$KEY" >> $GITHUB_ENV
+            echo "⚠️ 未配置 SECRET_KEY Secret，本次自动生成随机密钥"
+          fi
+
       - name: 启动应用
         env:
           # ★ 平台注入的端口。Flask 读这个环境变量。
           PORT: '8080'
-          # 口令从仓库 Secret 读。没配这个 Secret 的话就是空 = 完全公开。
-          ACCESS_PWD: ${{ secrets.ACCESS_PWD }}
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          # ★ 注意这里**没有**写 ACCESS_PWD / SECRET_KEY：
+          #   上一步写进 $GITHUB_ENV 的值，本来就是本步骤的进程环境变量，
+          #   shell 里直接用 $ACCESS_PWD / $SECRET_KEY 就能拿到。
+          #   反过来写 `ACCESS_PWD: ${{ env.ACCESS_PWD }}` 反而有风险 ——
+          #   如果求值时拿不到值，会得到空字符串，把正确口令覆盖成空，
+          #   结果是「配了 Secret 却等于没配」。
         run: |
           mkdir -p data
           nohup gunicorn app:app --bind 0.0.0.0:8080 --workers 2 --timeout 120 > app.log 2>&1 &
@@ -102,10 +158,14 @@ jobs:
             echo ""
             echo "### \`$TUNNEL_URL\`"
             echo ""
-            if [ -n "${{ secrets.ACCESS_PWD }}" ]; then
-              echo "访问口令：\`${{ secrets.ACCESS_PWD }}\`"
+            # ★ 口令可能来自 Secret，也可能本次自动生成。
+            #   两种情况都显示出来，用户不用去翻日志找。
+            if [ -n "$ACCESS_PWD" ]; then
+              echo "**访问口令：\`$ACCESS_PWD\`**"
+              echo ""
+              echo "来源：$PWD_SOURCE"
             else
-              echo "⚠️ 未设置 ACCESS_PWD secret，当前是完全公开的"
+              echo "⚠️ 未设置访问口令，当前是完全公开的"
             fi
             echo ""
             echo "| 页面 | 地址 |"
@@ -127,6 +187,16 @@ jobs:
       #   用 Contents API 而不是 `git push`：
       #   API 只需要 GITHUB_TOKEN，不依赖 checkout 时配置的 git 凭证，
       #   也不会因为分支保护而失败。
+      #
+      # ★★ 这里有个曾经把服务搞死的坑（2026-10-28 修）：
+      #   「同步地址」失败时，step 级别的 continue-on-error 虽然让这步显示为
+      #   失败但不中断 job —— 可是**后面的步骤照样会被跳过**，
+      #   包括「保持服务在线」。结果就是：服务起了 5 秒，同步失败，
+      #   保活被跳过 → 「清理」把 gunicorn 和 cloudflared 全杀了 →
+      #   地址瞬间失效，但日志里只显示同步那步失败，看不出真正后果。
+      #
+      #   修法：保活和清理都加 `if: always()`，不依赖前面步骤的状态。
+      #   同步本身继续保持"失败不影响上线"。
       - name: 同步地址到仓库
         # ★ continue-on-error：这一步失败（权限、API 限流等）
         #   **不能影响服务上线**。地址在 Actions 摘要里照样能看到，
@@ -176,6 +246,11 @@ jobs:
           fi
 
       - name: 保持服务在线
+        # ★ if: always() —— 关键修复。
+        #   保活步骤不能依赖前面步骤的状态。否则「同步地址」一失败，
+        #   保活就被跳过，「清理」紧接着把服务杀掉，地址秒失效。
+        #   加了 always() 之后：**只要服务起过了，就一定会保活到最后**。
+        if: always()
         # 同理：保活失败（比如超过时长被平台掐掉）不该让 run 变红，
         #   因为服务在保活期间是正常可用的。
         continue-on-error: true
@@ -185,6 +260,11 @@ jobs:
           MAX_MINUTES=340
           if [ "$MINUTES" -gt "$MAX_MINUTES" ]; then
             MINUTES=$MAX_MINUTES
+          fi
+          # ★ 服务根本没起来就别空转了，直接结束（不是失败）
+          if ! curl -sf http://127.0.0.1:8080/ > /dev/null; then
+            echo "⚠️ 服务不在运行，跳过保活"
+            exit 0
           fi
           echo "⏱️ 保持在线 $MINUTES 分钟"
           # 每分钟检查一次服务还活着，挂了就在日志里说明
@@ -202,6 +282,8 @@ jobs:
           echo "⏱️ 到达设定的时长，服务将下线"
 
       - name: 清理
+        # ★ if: always() —— 即使前面任何一步失败，也要把进程收干净，
+        #   不然 runner 上的 gunicorn/cloudflared 会一直挂着占资源。
         if: always()
         run: |
           [ -f tunnel.pid ] && kill $(cat tunnel.pid) 2>/dev/null || true

@@ -8,22 +8,50 @@
 
 ### 方式 A：GitHub Actions 一键部署（推荐）
 
-#### A-0. 首次使用：先设置访问口令（**只需做一次**）
+#### A-0. 访问口令：**不用你手动设**（v0.4.1 起）
 
 > ⚠️ **不设口令 = 任何人拿到链接都能进后台改你的数据。**
-> 面试前务必设上。只需做一次。
+>
+> **好消息：从 v0.4.1 开始，工作流会自动生成一个随机强口令**，
+> 直接显示在 Actions 任务摘要里。你**不需要**再去 GitHub 网页上找
+> 「新建存储库机密」那个按钮（入口在 Settings → Security →
+> Secrets and variables → Actions，确实很难找）。
 
-1. 仓库 → **Settings** → 左侧 **Secrets and variables** → **Actions**
-2. 点 **New repository secret**，加两个：
+**两种模式，你什么都不用做也会是安全的：**
 
-   | Name | Value | 说明 |
-   |---|---|---|
-   | `ACCESS_PWD` | 随便起一个，比如 `demo2026` | 访问口令，用户要输入才能进 |
-   | `SECRET_KEY` | 一串随机字符，比如 `a8f3k2m9x7` | session 加密密钥 |
+| 情况 | 口令从哪来 | 你在哪看到 |
+|---|---|---|
+| 仓库里配了 `ACCESS_PWD` Secret | 你自己定的，稳定不变 | 你自己记得的那个 |
+| 没配（默认） | **本次运行自动生成的 16 位随机口令** | Actions 页面顶部的任务摘要 |
 
-   > `SECRET_KEY` 用随机串就行，不用记。作用是防止别人伪造 cookie 冒充你。
+摘要长这样：
 
-3. 保存。**下次部署自动生效。**
+```
+## 🌐 停车场系统已上线
+### https://xxxx-yyyy-zzz.trycloudflare.com
+**访问口令：`K7m2Pq9xRt4Lm8v`**
+来源：本次运行自动生成的随机口令
+```
+
+> 想让口令固定不变（每次同一个，方便面试前记熟），可以自己配 Secret：
+> 仓库 → Settings → Security → Secrets and variables → Actions →
+> Secrets → New repository secret，加两个：
+>
+> | Name | Value | 说明 |
+> |---|---|---|
+> | `ACCESS_PWD` | 随便起一个，比如 `demo2026` | 访问口令，用户要输入才能进 |
+> | `SECRET_KEY` | 一串随机字符，比如 `a8f3k2m9x7` | session 加密密钥 |
+>
+> **不想点网页也行** —— 仓库里带了个脚本，一行命令搞定：
+>
+> ```bash
+> pip install pynacl
+> GH_TOKEN=你的token python tools/set_github_secret.py ACCESS_PWD demo2026
+> GH_TOKEN=你的token python tools/set_github_secret.py SECRET_KEY a8f3k2m9x7
+> ```
+>
+> （GitHub 的 Secret API 要用仓库公钥做 libsodium 加密，
+> 脚本 `tools/set_github_secret.py` 已经封装好了，不用自己实现加密。）
 
 #### A-1. 触发部署
 
@@ -35,15 +63,22 @@
    ```
    ## 🌐 停车场系统已上线
    ### https://xxxx-yyyy-zzz.trycloudflare.com
-   访问口令：`demo2026`
+   **访问口令：`K7m2Pq9xRt4Lm8v`**
    ```
 
 5. **复制这个地址**（`trycloudflare.com` 结尾那个），就是手机能打开的公网地址
+6. **口令就写在地址下面**，一起复制发给面试官或自己输入
 
 **如果 Actions 跑失败**：看日志最后几行，多半是依赖装不上。点 **Re-run all jobs** 重试。
 
 > ⚠️ 这个地址是**临时的**——本次运行结束就失效。
 > 面试前 10 分钟跑一次，保证它还活着。
+
+> 💡 **省事的办法**：本地直接推 tag 也能触发部署，不用点网页：
+> ```bash
+> git tag v0.4.1 && git push origin v0.4.1
+> ```
+> 地址照样同步回 `tunnel-url.txt`。
 
 #### A-1-1：不用登录 Actions 页面拿地址
 
@@ -165,12 +200,15 @@ curl -s https://raw.githubusercontent.com/Qyy185/ParkingSystem/main/tunnel-url.t
 ### Q：公网上数据安全吗？
 
 > 加了访问口令（`ACCESS_PWD` 环境变量），session 记住验证状态。
-> 另外 `secret_key` 是从环境变量读的、没配就随机生成 —— 原来写死在代码里，
+> **口令有两条来源**：仓库里配了 Secret 就用固定的；
+> 没配就**每次部署自动生成一个 16 位随机口令**，
+> 显示在 Actions 摘要里 —— 这样不存在「忘了配 = 完全裸奔」的情况。
+> 另外 `secret_key` 也是从环境变量读的、没配就随机生成 —— 原来写死在代码里，
 > 公网上任何人拿到都能伪造 cookie。
 
 ### Q：测试怎么做的？
 
-> 317 项自动化自检，两部分：业务规则单元测试（直接调业务层，不依赖网络）
+> 340 项自动化自检，两部分：业务规则单元测试（直接调业务层，不依赖网络）
 > 和 HTTP 端到端测试（真起服务器，请求页面和表单）。
 > 几个关键回归点：月租停 3 天费用必须是 0、临停停 2 小时必须还是 10 元
 > （防会员逻辑误伤）、同一档位催缴不能重复发、过期账户出场必须被删。
@@ -182,10 +220,11 @@ curl -s https://raw.githubusercontent.com/Qyy185/ParkingSystem/main/tunnel-url.t
 | 现象 | 原因 | 解决 |
 |---|---|---|
 | Actions 跑完地址打不开 | 运行已结束（最长 6 小时） | 重跑一次 |
-| 页面显示「请输入访问口令」 | 口令保护生效了 | 用 Actions 摘要里显示的口令 |
+| 页面显示「请输入访问口令」 | 口令保护生效了（自动生成或 Secret 配的） | 看 Actions 摘要里的口令 |
 | 手机打不开局域网地址 | 手机和电脑不在同一 Wi-Fi | 改用方式 A |
 | 小程序预览是空白 | 微信开发者工具未安装 | 装一下，或用 WorkBuddy 预览卡 |
 | 端口 3000 被占用 | 上次服务没关 | 任务管理器结束 python.exe |
+| 地址和实际跑着的对不上 | 多个 run 同时在跑，文件被后一个覆盖 | v0.4.1 已加并发控制，同一时刻只留一个 |
 
 ---
 

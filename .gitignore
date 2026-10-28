@@ -12,3 +12,8 @@ _*.log
 _tunnel.log
 _gunicorn.log
 miniprogram/_store_test.js
+
+# GitHub token 等敏感文件，绝不能进仓库
+tools/.ghcred*
+tools/.env
+*.token
