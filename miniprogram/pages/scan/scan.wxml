@@ -1,0 +1,66 @@
+<view class="page">
+    <view class="hero">
+        <text class="eyebrow">扫码入场</text>
+        <text class="title">车牌识别</text>
+        <text class="subtitle">模拟车牌识别摄像头 · 扫到牌后自动分流</text>
+    </view>
+
+    <!-- 取景框 -->
+    <view class="scan-view">
+        <view class="scan-corner tl"></view>
+        <view class="scan-corner tr"></view>
+        <view class="scan-corner bl"></view>
+        <view class="scan-corner br"></view>
+        <view class="scan-beam"></view>
+
+        <!-- 就绪 -->
+        <view class="scan-idle" wx:if="{{stage === 'idle'}}">
+            <view class="scan-icon"></view>
+            <text class="scan-text">摄像头就绪</text>
+            <text class="scan-sub">点击下方按钮模拟识别到车牌</text>
+        </view>
+
+        <!-- 识别中 -->
+        <view class="scan-idle" wx:if="{{stage === 'capturing'}}">
+            <view class="scan-icon is-busy"></view>
+            <text class="scan-text">识别中…</text>
+            <text class="scan-sub">请在下方输入摄像头读到的车牌</text>
+        </view>
+
+        <!-- 识别完成 -->
+        <view class="scan-result" wx:if="{{stage === 'done'}}">
+            <text class="scan-plate">{{result.plate}}</text>
+            <text class="scan-kind {{result.isMember ? 'is-member' : 'is-temp'}}">{{result.channelText}}</text>
+            <text class="scan-spot">{{result.message}}</text>
+        </view>
+    </view>
+
+    <view class="alert alert-err" wx:if="{{error !== ''}}">{{error}}</view>
+
+    <!-- 操作区 -->
+    <view class="card" wx:if="{{stage === 'idle'}}">
+        <button class="primary-button full" bindtap="handleScan">模拟扫描</button>
+        <text class="tip">现实中这里是一台车牌识别摄像头，扫到牌就自动开闸。现在先手动输入车牌，等价于摄像头识别出了这个号。</text>
+    </view>
+
+    <view class="card" wx:if="{{stage === 'capturing'}}">
+        <text class="field-label">摄像头识别到的车牌 <text class="required">*</text></text>
+        <input class="field-input" placeholder="如 黑A12345" value="{{plate}}"
+               bindinput="handlePlateInput" maxlength="12" />
+        <view class="btn-row">
+            <button class="ghost-button grow" bindtap="handleCancel">取消</button>
+            <button class="primary-button grow" bindtap="handleConfirm"
+                    loading="{{submitting}}" disabled="{{submitting}}">识别并入场</button>
+        </view>
+    </view>
+
+    <view class="card" wx:if="{{stage === 'done'}}">
+        <view class="btn-row">
+            <button class="ghost-button grow" bindtap="handleReset">重新扫描</button>
+        </view>
+    </view>
+
+    <view class="back-row">
+        <button class="ghost-button full" bindtap="goBack">返回车主端</button>
+    </view>
+</view>

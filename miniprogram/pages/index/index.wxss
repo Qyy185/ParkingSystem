@@ -1,0 +1,319 @@
+/* ============================================================
+   智慧停车小程序 · 车主端样式
+   ============================================================ */
+
+.page {
+    box-sizing: border-box;
+    min-height: 100vh;
+    padding: 40rpx 28rpx 64rpx;
+}
+
+/* ---- 顶部 ---- */
+.hero {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 28rpx;
+}
+.eyebrow {
+    color: #1d9e75;
+    font-size: 22rpx;
+    font-weight: 600;
+    letter-spacing: 3rpx;
+}
+.title {
+    margin-top: 12rpx;
+    font-size: 48rpx;
+    font-weight: 700;
+    line-height: 1.25;
+}
+.subtitle {
+    margin-top: 10rpx;
+    color: #8a9099;
+    font-size: 26rpx;
+}
+
+/* ---- 提示条 ---- */
+.alert {
+    box-sizing: border-box;
+    margin-bottom: 20rpx;
+    padding: 22rpx 24rpx;
+    border-radius: 16rpx;
+    font-size: 26rpx;
+    line-height: 1.6;
+}
+.alert-ok {
+    background: #e1f5ee;
+    border: 2rpx solid #b8e0d0;
+    color: #085041;
+}
+.alert-err {
+    background: #fdeee6;
+    border: 2rpx solid #f5c9b3;
+    color: #a5372a;
+}
+
+/* ---- 卡片 ---- */
+.card {
+    box-sizing: border-box;
+    margin-bottom: 24rpx;
+    padding: 28rpx;
+    border-radius: 20rpx;
+    background: #ffffff;
+    box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04);
+}
+.card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20rpx;
+}
+.card-title {
+    font-size: 30rpx;
+    font-weight: 600;
+}
+.card-link {
+    color: #378add;
+    font-size: 26rpx;
+}
+
+/* ---- 车位格子 ---- */
+.grid {
+    display: flex;
+    flex-wrap: wrap;
+}
+.cell {
+    box-sizing: border-box;
+    width: 25%;
+    padding: 14rpx 6rpx;
+    margin-bottom: 12rpx;
+    text-align: center;
+    border: 2rpx solid transparent;
+    border-radius: 14rpx;
+}
+.cell.is-free {
+    background: #e6f4ee;
+    border-color: #b8e0d0;
+}
+.cell.is-busy {
+    background: #fdeee6;
+    border-color: #f5c9b3;
+}
+.cell-id {
+    display: block;
+    color: #8a9099;
+    font-size: 20rpx;
+}
+.cell-plate {
+    display: block;
+    margin-top: 2rpx;
+    font-size: 22rpx;
+    font-weight: 500;
+    word-break: break-all;
+}
+.cell.is-free .cell-plate {
+    color: #1d9e75;
+}
+.cell.is-busy .cell-plate {
+    color: #d85a30;
+}
+.cell-channel {
+    display: inline-block;
+    margin-top: 4rpx;
+    padding: 0 8rpx;
+    border-radius: 6rpx;
+    background: #d85a30;
+    color: #ffffff;
+    font-size: 18rpx;
+    line-height: 28rpx;
+}
+.cell-channel.is-member {
+    background: #1d9e75;
+}
+
+/* ---- 按钮 ---- */
+.action-row {
+    display: flex;
+    margin-bottom: 16rpx;
+}
+.primary-button,
+.ghost-button {
+    box-sizing: border-box;
+    margin: 0 8rpx;
+    padding: 0 24rpx;
+    border-radius: 16rpx;
+    font-size: 30rpx;
+    line-height: 88rpx;
+}
+.grow {
+    flex: 1;
+}
+.primary-button {
+    background: #378add;
+    color: #ffffff;
+}
+.ghost-button {
+    border: 2rpx solid #dfe1e5;
+    background: #ffffff;
+    color: #1f2329;
+}
+
+/* ---- 待缴费卡片 ---- */
+.fee-card {
+    box-sizing: border-box;
+    margin-bottom: 24rpx;
+    padding: 28rpx;
+    border: 2rpx solid #f0d5a8;
+    border-radius: 20rpx;
+    background: #fdf3e3;
+}
+.fee-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.fee-plate {
+    font-size: 32rpx;
+    font-weight: 600;
+}
+.fee-channel {
+    padding: 4rpx 14rpx;
+    border-radius: 8rpx;
+    background: #f0f1f2;
+    color: #5f5e5a;
+    font-size: 22rpx;
+}
+.fee-amount {
+    margin-top: 16rpx;
+    color: #7a4b0d;
+    font-size: 28rpx;
+}
+.fee-num {
+    color: #ba7517;
+    font-size: 52rpx;
+    font-weight: 700;
+}
+.fee-minutes {
+    display: block;
+    margin-top: 4rpx;
+    color: #7a4b0d;
+    font-size: 24rpx;
+}
+.fee-actions {
+    display: flex;
+    margin-top: 24rpx;
+}
+
+/* ---- 流水 ---- */
+.log-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18rpx 0;
+    border-top: 2rpx solid #f4f5f6;
+}
+.log-main {
+    flex: 1;
+    min-width: 0;
+}
+.log-plate {
+    display: block;
+    font-size: 28rpx;
+    font-weight: 500;
+}
+.log-meta {
+    display: block;
+    margin-top: 2rpx;
+    color: #8a9099;
+    font-size: 22rpx;
+}
+.log-side {
+    text-align: right;
+}
+.log-fee {
+    display: block;
+    color: #ba7517;
+    font-size: 28rpx;
+    font-weight: 600;
+}
+.log-time {
+    display: block;
+    margin-top: 2rpx;
+    color: #8a9099;
+    font-size: 20rpx;
+}
+
+/* ---- 底部弹层 ---- */
+.editor-mask {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 10;
+}
+.editor-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    box-sizing: border-box;
+    padding: 36rpx 32rpx 48rpx;
+    border-radius: 28rpx 28rpx 0 0;
+    background: #ffffff;
+    z-index: 11;
+}
+.sheet-title {
+    display: block;
+    font-size: 34rpx;
+    font-weight: 600;
+}
+.sheet-error {
+    display: block;
+    margin-top: 16rpx;
+    padding: 16rpx 20rpx;
+    border-radius: 12rpx;
+    background: #fdeee6;
+    color: #a5372a;
+    font-size: 26rpx;
+}
+.sheet-hint {
+    display: block;
+    margin-top: 12rpx;
+    color: #8a9099;
+    font-size: 24rpx;
+}
+.field-group {
+    margin-top: 28rpx;
+}
+.field-label {
+    display: block;
+    margin-bottom: 12rpx;
+    color: #5f5e5a;
+    font-size: 26rpx;
+}
+.required {
+    color: #d85a30;
+}
+.field-input {
+    box-sizing: border-box;
+    width: 100%;
+    height: 88rpx;
+    padding: 0 24rpx;
+    border: 2rpx solid #dfe1e5;
+    border-radius: 16rpx;
+    font-size: 30rpx;
+}
+.sheet-actions {
+    display: flex;
+    margin-top: 36rpx;
+}
+.sheet-button {
+    flex: 1;
+    margin: 0 8rpx;
+    border-radius: 16rpx;
+    background: #f2f3f5;
+    color: #1f2329;
+    font-size: 30rpx;
+    line-height: 88rpx;
+}

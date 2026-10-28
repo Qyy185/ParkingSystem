@@ -1,0 +1,78 @@
+/* 进出场流水页 */
+.page {
+    box-sizing: border-box;
+    min-height: 100vh;
+    padding: 40rpx 28rpx 64rpx;
+}
+
+.hero { display: flex; flex-direction: column; margin-bottom: 28rpx; }
+.eyebrow { color: #1d9e75; font-size: 22rpx; font-weight: 600; letter-spacing: 3rpx; }
+.title { margin-top: 12rpx; font-size: 44rpx; font-weight: 700; line-height: 1.25; }
+.subtitle { margin-top: 10rpx; color: #8a9099; font-size: 26rpx; }
+
+.state-card {
+    box-sizing: border-box;
+    display: flex;
+    min-height: 320rpx;
+    align-items: center;
+    flex-direction: column;
+    justify-content: center;
+    margin-bottom: 24rpx;
+    padding: 36rpx;
+    border: 2rpx solid #e5e8eb;
+    border-radius: 20rpx;
+    background: #ffffff;
+    text-align: center;
+}
+.state-error { border-color: #ffd8d6; }
+.state-icon { color: #1d9e75; font-size: 56rpx; font-weight: 700; }
+.state-title { margin-top: 16rpx; font-size: 32rpx; font-weight: 600; }
+.state-desc { margin-top: 10rpx; color: #646a73; font-size: 26rpx; line-height: 1.6; }
+
+/* 流水卡 */
+.log-card {
+    box-sizing: border-box;
+    margin-bottom: 18rpx;
+    padding: 26rpx;
+    border: 2rpx solid #ebedf0;
+    border-radius: 20rpx;
+    background: #ffffff;
+}
+.log-head { display: flex; align-items: center; justify-content: space-between; }
+.log-plate { font-size: 32rpx; font-weight: 600; }
+.log-type {
+    padding: 4rpx 14rpx;
+    border-radius: 8rpx;
+    background: #eef4fb;
+    color: #185fa5;
+    font-size: 22rpx;
+}
+.log-grid { display: flex; margin-top: 20rpx; flex-wrap: wrap; }
+.log-cell { width: 50%; margin-bottom: 12rpx; }
+.log-cell-label { display: block; color: #8a9099; font-size: 22rpx; }
+.log-cell-value { display: block; margin-top: 2rpx; font-size: 26rpx; }
+.log-cell-value.is-money { color: #ba7517; font-weight: 600; }
+.log-time { display: block; color: #8a9099; font-size: 22rpx; }
+.log-note {
+    display: block;
+    margin-top: 8rpx;
+    padding: 10rpx 16rpx;
+    border-radius: 10rpx;
+    background: #fdf3e3;
+    color: #854f0b;
+    font-size: 22rpx;
+}
+
+.primary-button,
+.ghost-button {
+    box-sizing: border-box;
+    margin: 0 8rpx;
+    padding: 0 24rpx;
+    border-radius: 16rpx;
+    font-size: 30rpx;
+    line-height: 88rpx;
+}
+.primary-button { background: #378add; color: #ffffff; }
+.ghost-button { border: 2rpx solid #dfe1e5; background: #ffffff; color: #1f2329; }
+.full { width: 100%; margin: 24rpx 0 0; }
+.back-row { margin-top: 8rpx; }

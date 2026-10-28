@@ -960,6 +960,127 @@ def test_temp_account_still_removed():
 
 
 # ============================================================
+# 访问口令保护（v0.4）
+# ============================================================
+
+def test_access_password():
+    """★ 公网部署的访问口令：没口令进不去，验证过才放行。
+
+    要另起一个带 ACCESS_PWD 的服务器实例，所以单独跑。
+    """
+    print("=== 启动带口令的服务器 ===")
+    port = PORT + 1
+    log_path = os.path.join(tempfile.gettempdir(), "parking_selftest_pwd.log")
+    log_file = open(log_path, "w", encoding="utf-8")
+
+    env = dict(os.environ)
+    env["ACCESS_PWD"] = "test123"
+    env["PORT"] = str(port)
+    env["PYTHONIOENCODING"] = "utf-8"
+
+    proc = subprocess.Popen(
+        [PY, os.path.join(ROOT, "app.py")],
+        cwd=ROOT, stdout=log_file, stderr=subprocess.STDOUT, env=env,
+    )
+    time.sleep(3)
+
+    def pget(path, opener=None):
+        o = opener or urllib.request.build_opener()
+        req = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path))
+        try:
+            with o.open(req, timeout=10) as resp:
+                return resp.status, resp.geturl(), resp.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            return e.code, e.geturl(), e.read().decode("utf-8")
+
+    def ppost(path, data, opener=None):
+        o = opener or urllib.request.build_opener()
+        body = urllib.parse.urlencode(data).encode("utf-8")
+        req = urllib.request.Request(
+            "http://127.0.0.1:%d%s" % (port, path), data=body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"})
+        try:
+            with o.open(req, timeout=10) as resp:
+                return resp.status, resp.geturl(), resp.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            return e.code, e.geturl(), e.read().decode("utf-8")
+
+    try:
+        # 1. 没验证时访问主页 → 跳到口令页
+        status, url, text = pget("/")
+        check("没口令时访问主页跳到 /access", "/access" in url, url)
+        check("口令页含输入框", 'name="pwd"' in text)
+
+        # 2. 静态资源不拦（否则样式都加载不出来）
+        status, url, text = pget("/static/style.css")
+        check("静态资源不被口令拦住", status == 200, "status=%d" % status)
+
+        # 3. 口令错误 → 提示
+        status, url, text = ppost("/access", {"pwd": "wrong"})
+        check("口令错误给出提示", "口令不对" in text)
+
+        # 4. 口令正确 → 放行
+        opener = urllib.request.build_opener()
+        status, url, text = ppost("/access", {"pwd": "test123"}, opener)
+        check("口令正确后进了主页", "地下停车场" in text, url[:60])
+
+        # 5. 带 cookie 后续请求直接放行
+        status, url, text = pget("/admin", opener)
+        check("验证后访问后台放行", status == 200, "status=%d" % status)
+
+        # 6. 新会话（没 cookie）又被拦
+        status, url, text = pget("/admin")
+        check("新会话又被拦回口令页", "/access" in url, url)
+
+    except Exception as e:
+        check("口令测试过程无异常", False, str(e))
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            proc.kill()
+        log_file.close()
+
+
+def test_deploy_config():
+    """★ 公网部署配置检查（静态检查配置文件）。"""
+    # app.py 必须读 PORT 环境变量 —— 平台注入的端口，写死会导致启动失败
+    with open(os.path.join(ROOT, "app.py"), encoding="utf-8") as f:
+        app_src = f.read()
+    check("app.py 读 PORT 环境变量", 'os.environ.get("PORT"' in app_src)
+    check("app.py 读 SECRET_KEY 环境变量", 'os.environ.get("SECRET_KEY"' in app_src)
+    check("app.py 读 ACCESS_PWD 环境变量", 'os.environ.get("ACCESS_PWD"' in app_src)
+    # 只查代码行，别查注释 —— 注释里提到旧值是为了说明「为什么改」
+    code_lines = [ln for ln in app_src.split("\n")
+                  if not ln.strip().startswith("#")]
+    code_only = "\n".join(code_lines)
+    check("secret_key 不再硬编码",
+          "parking-demo-secret-key" not in code_only)
+    check("secret_key 有随机兜底", "secrets.token_hex" in code_only)
+
+    # GitHub Actions 工作流
+    wf_path = os.path.join(ROOT, ".github", "workflows", "deploy.yml")
+    check("部署工作流存在", os.path.exists(wf_path))
+    if os.path.exists(wf_path):
+        with open(wf_path, encoding="utf-8") as f:
+            wf = f.read()
+        check("工作流用 gunicorn 起服务", "gunicorn app:app" in wf)
+        check("工作流装 cloudflared", "cloudflared" in wf)
+        check("工作流提取 trycloudflare 地址",
+              "trycloudflare" in wf and "TUNNEL_URL" in wf)
+        check("工作流写任务摘要", "GITHUB_STEP_SUMMARY" in wf)
+        check("工作流支持手动触发", "workflow_dispatch" in wf)
+        check("工作流有清理步骤", "清理" in wf)
+
+    # requirements 要有生产级服务器
+    with open(os.path.join(ROOT, "requirements.txt"), encoding="utf-8") as f:
+        req = f.read()
+    check("requirements 含 gunicorn", "gunicorn" in req)
+    check("requirements 含 waitress", "waitress" in req)
+
+
+# ============================================================
 # B. HTTP 端到端测试
 # ============================================================
 
@@ -1224,7 +1345,7 @@ def test_http():
         # 这里查的是「源码里该有的东西有没有」，真正的像素级效果
         # 用 CDP 设备模拟截图人工确认过（390px / 320px 两个视口）。
 
-        MOBILE_PAGES = ["/", "/scan", "/accounts", "/admin", "/recharge"]
+        MOBILE_PAGES = ["/", "/scan", "/accounts", "/admin", "/recharge", "/remind"]
         for path in MOBILE_PAGES:
             status, text = get(path)
             check("%s 有 viewport meta" % path,
@@ -1334,6 +1455,10 @@ def main():
     test_valid_member_kept_on_exit()
     test_expired_member_balance_traced()
     test_temp_account_still_removed()
+
+    print("=== 公网部署配置测试（v0.4） ===")
+    test_deploy_config()
+    test_access_password()
 
     test_http()
 

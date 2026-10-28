@@ -7,7 +7,7 @@
 [![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**当前版本：v0.3.1**（会员催缴 + 账户宽限期）
+**当前版本：v0.4**（公网部署 + 微信小程序）
 
 | 页面 | 地址 |
 |---|---|
@@ -20,6 +20,8 @@
 
 > 📱 **手机访问**：启动后车主端页脚会显示本机局域网地址（如 `http://192.168.1.5:3000`），
 > 手机连同一个 Wi-Fi 直接在浏览器里输这个地址就行，不用装任何东西。
+>
+> 🌐 **公网访问**：见 [公网部署](#公网部署) 一节，用 GitHub Actions 一条命令拿到公网 URL。
 
 ---
 
@@ -395,9 +397,14 @@ def _read_list(path):
 │   └── style.css       # 纯 CSS（响应式 + Grid 布局）
 ├── data/               # 运行时生成的数据文件（gitignore）
 ├── tools/
-│   ├── selftest.py     # 317 项自动化自检
+│   ├── selftest.py     # 340 项自动化自检
 │   ├── launcher.src.txt # 启动器源文件（UTF-8）
 │   └── convert_launcher.ps1  # 转码成 GBK 的 启动.bat
+├── miniprogram/        # 微信小程序（原生）
+├── .github/
+│   └── workflows/
+│       └── deploy.yml  # 公网部署（Actions + Cloudflare 隧道）
+├── DEMO.md             # 面试演示指引
 ├── requirements.txt
 └── 启动.bat
 ```
@@ -419,9 +426,9 @@ def _read_list(path):
 .venv/Scripts/python.exe tools/selftest.py
 ```
 
-自检分两部分，共 **317 项**：
+自检分两部分，共 **340 项**：
 
-**A. 业务规则单元测试**（218 项，直接调业务层，不依赖网络）
+**A. 业务规则单元测试**（231 项，直接调业务层，不依赖网络）
 
 | 分组 | 覆盖内容 |
 |---|---|
@@ -454,8 +461,11 @@ def _read_list(path):
 | **过期账户注销** | 过宽限期出场后账户删除、有效会员出场后保留 |
 | **余额留痕** | 注销时余额写进流水，钱不凭空消失 |
 | **临时账号照常删** | v0.2.2 的行为没被破坏 |
+| **公网部署配置** | PORT/SECRET_KEY/ACCESS_PWD 走环境变量、secret_key 不硬编码 |
+| **Actions 工作流** | gunicorn 起服务、装 cloudflared、提取 URL、写任务摘要、可手动触发、有清理步骤 |
+| **访问口令保护** | 没口令跳口令页、静态资源不拦、口令错给提示、对了放行、新会话重新拦 |
 
-**B. HTTP 端到端测试**（99 项，真起服务器，请求页面和表单）
+**B. HTTP 端到端测试**（109 项，真起服务器，请求页面和表单）
 
 其中最后 22 项是 **v0.3 手机端适配**的回归防护：
 
@@ -550,9 +560,135 @@ def _read_list(path):
 [PASS] 竖排表单修正了 flex-basis 塌陷问题
 [PASS] 车主端含局域网访问提示
 ---
-317 / 317 通过
+340 / 340 通过
 ```
 </details>
+
+---
+
+## 公网部署
+
+### 为什么不用 GitHub Pages
+
+**Pages 只托管静态文件。** 本项目是 Flask 动态应用，表单提交（`/entry`、`/pay`）
+需要后端处理 —— Pages 跑不了，代码会被当文本返回，点提交直接 404。
+
+这不是配置问题，是架构问题。
+
+### 方案：GitHub Actions + Cloudflare 隧道
+
+```
+GitHub Actions runner（Ubuntu）
+  ↓  pip install -r requirements.txt
+  ↓  gunicorn app:app --bind 0.0.0.0:8080
+  ↓  cloudflared tunnel --url http://localhost:8080
+  ↓
+https://xxxx-yyyy-zzz.trycloudflare.com   ← 手机直接打开
+```
+
+工作流文件：`.github/workflows/deploy.yml`
+
+| 触发方式 | 说明 |
+|---|---|
+| 手动 | Actions 页面点 "Run workflow" |
+| 推 tag | `git push origin v0.4` 自动触发 |
+
+**代价**（说清楚比藏着好）：
+- URL 每次运行都变（trycloudflare 的随机域名）
+- 单次运行最长 6 小时
+- Actions 免费额度有上限，滥用会触发限流
+
+### 三个环境变量
+
+| 变量 | 作用 | 不设会怎样 |
+|---|---|---|
+| `PORT` | 平台注入的端口 | 写死 3000 会让平台判定启动失败 |
+| `SECRET_KEY` | session 加密密钥 | 随机生成，**重启后旧 session 失效** |
+| `ACCESS_PWD` | 访问口令 | **完全公开**，任何人拿到链接都能改数据 |
+
+> ⚠️ `SECRET_KEY` 原来写死在代码里（`parking-demo-secret-key`）。
+> 公网上任何人都能用这个密钥伪造 session cookie —— 这是真实的安全漏洞，
+> 现在改成环境变量读取、没配就随机生成。
+
+### 访问口令
+
+公网部署后必须加口令，否则后台页面谁都能进：
+
+```python
+@app.before_request
+def check_access_password():
+    if not ACCESS_PWD:
+        return None                    # 没设口令 = 完全公开
+    if session.get("access_ok"):
+        return None                    # 已验证
+    if request.path == "/access":
+        return None                    # 口令页本身不能拦，否则死循环
+    if request.path.startswith("/static/"):
+        return None                    # 静态资源不能拦，否则样式加载不出来
+    return redirect(url_for("access_page"))
+```
+
+### 生产级 WSGI 服务器
+
+Flask 自带的开发服务器是**单线程**的，并发一多就卡。公网部署必须用：
+
+| 环境 | 服务器 | 命令 |
+|---|---|---|
+| Linux（Actions / Render / Railway） | gunicorn | `gunicorn app:app --bind 0.0.0.0:$PORT` |
+| Windows（本地） | waitress | `python app.py`（自动切换） |
+
+`gunicorn` 依赖 Unix 的 `fcntl` 模块，**在 Windows 上装得上但跑不了**，
+所以 `requirements.txt` 里两个都列了，本地和公网各用各的。
+
+---
+
+## 微信小程序
+
+`miniprogram/` 目录是一套**原生微信小程序**，和 Flask 版共用同一套业务规则。
+
+```
+miniprogram/
+├── app.js / app.json / app.wxss
+├── utils/
+│   └── parking-store.js      # ★ 数据层（业务规则）
+└── pages/
+    ├── index/                 # 车主端：入场 / 查费 / 缴费 / 车位总览
+    ├── scan/                  # 扫码入场
+    ├── recharge/              # 会员充值
+    ├── remind/                # 催缴管理
+    └── item-list/             # 进出场流水
+```
+
+### 数据层接口约定
+
+数据层的方法签名和返回结构，跟微信云开发的 `createTableAccess` **完全一致**：
+
+```javascript
+list() / create() / update() / remove()   // 全部返回 { data, error }
+                                          // 永远不 reject，错误用 error 对象表达
+```
+
+> ★ **这是刻意设计的**：现在用本地存储（`wx.setStorageSync`），
+> 将来切云服务时**只替换 `utils/parking-store.js` 一个文件，
+> 页面代码一行都不用改**。
+
+### 当前状态：本地存储
+
+| | 说明 |
+|---|---|
+| 数据位置 | 手机本地 `wx.setStorageSync` |
+| 优点 | 不用服务器、不用备案，小程序能直接跑起来演示 |
+| 代价 | 数据只在这台手机上，换手机看就是空的 |
+
+> **微信云开发和「小程序认证 / 备案」是两件独立的事** ——
+> 云开发决定数据存哪里，不需要你备案；
+> 认证和 ICP 备案是微信平台要求你才能**正式发布上线**。
+> 所以认证没过不影响写云开发代码，但会影响真机正式发布。
+
+### 校验
+
+小程序工程有 29 项 store 逻辑测试 + 静态检查（JSON 合法性、WXML 标签配对、
+表达式限制、事件绑定方法存在性、JS 语法），全部通过。
 
 ---
 
@@ -564,7 +700,8 @@ def _read_list(path):
 | v0.2.1 | ✅ 已封版 | 扫码入场 + 车牌分流 + 账户管理 |
 | v0.2.2 | ✅ 已封版 | 账户细分（月租/年租）+ 临时账号在场 + 独立充值页 |
 | v0.3 | ✅ 已封版 | 手机端适配：表格卡片化 + iOS 缩放修复 + 安全区 + 触控目标 |
-| **v0.3.1** | ✅ **当前** | **会员催缴（短信/微信模拟）+ 账户宽限期 + 过期出场注销** |
+| v0.3.1 | ✅ 已封版 | 会员催缴（短信/微信模拟）+ 账户宽限期 + 过期出场注销 |
+| **v0.4** | ✅ **当前** | **公网部署（Actions + 隧道）+ 访问口令 + 微信小程序** |
 | v0.4 | 计划中 | 报表统计、CSV 导出、余额抵扣临停费用 |
 
 ---

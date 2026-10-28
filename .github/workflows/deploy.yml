@@ -1,0 +1,147 @@
+name: 部署到公网（临时隧道）
+
+# ★ 为什么用 GitHub Actions 而不是 GitHub Pages？
+#
+#   GitHub Pages 只托管**静态文件**。本项目是 Flask 动态应用，
+#   表单提交（/entry、/pay）需要后端处理，Pages 跑不了。
+#
+#   Actions 是「跑代码」的：可以装 Python、起 Flask、开隧道，
+#   拿到一个公网 URL。代价是每次跑 URL 都变，且最多跑 6 小时。
+#
+#   面试演示场景这完全够用：跑一次，拿到链接，手机直接开。
+#
+# 触发方式：
+#   ① 手动：Actions 页面点 "Run workflow"
+#   ② 推 tag：git push origin v0.4 会自动触发
+
+# ★ "on" 加引号：YAML 1.1 会把裸 on 解析成布尔 true，
+#   GitHub 虽然能兼容，但加了引号更规范，别的解析器也不会误解。
+"on":
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: '保持在线的分钟数（最多 350）'
+        required: false
+        default: '300'
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  deploy:
+    name: 启动服务并开放公网访问
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python 依赖
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 安装 cloudflared（Cloudflare 隧道客户端）
+        run: |
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          chmod +x cloudflared
+          ./cloudflared --version
+
+      - name: 启动应用
+        env:
+          # ★ 平台注入的端口。Flask 读这个环境变量。
+          PORT: '8080'
+          # 口令从仓库 Secret 读。没配这个 Secret 的话就是空 = 完全公开。
+          ACCESS_PWD: ${{ secrets.ACCESS_PWD }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        run: |
+          mkdir -p data
+          nohup gunicorn app:app --bind 0.0.0.0:8080 --workers 2 --timeout 120 > app.log 2>&1 &
+          echo $! > app.pid
+          sleep 4
+          # 确认服务真的起来了
+          if ! curl -sf http://127.0.0.1:8080/ > /dev/null; then
+            echo "❌ 服务启动失败，日志如下："
+            cat app.log
+            exit 1
+          fi
+          echo "✅ 服务已启动"
+
+      - name: 开放公网隧道
+        run: |
+          nohup ./cloudflared tunnel --url http://localhost:8080 --no-autoupdate > tunnel.log 2>&1 &
+          echo $! > tunnel.pid
+          # cloudflared 启动要几秒，等 URL 出现
+          for i in $(seq 1 30); do
+            URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' tunnel.log | head -1)
+            if [ -n "$URL" ]; then
+              echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
+              echo "TUNNEL_URL=$URL" >> tunnel_url.txt
+              break
+            fi
+            sleep 2
+          done
+          if [ -z "$URL" ]; then
+            echo "❌ 隧道启动失败，日志如下："
+            cat tunnel.log
+            exit 1
+          fi
+          echo "🌐 公网地址：$URL"
+
+      - name: 把访问地址写到任务摘要
+        run: |
+          {
+            echo "## 🌐 停车场系统已上线"
+            echo ""
+            echo "**手机直接打开这个地址：**"
+            echo ""
+            echo "### \`$TUNNEL_URL\`"
+            echo ""
+            if [ -n "${{ secrets.ACCESS_PWD }}" ]; then
+              echo "访问口令：\`${{ secrets.ACCESS_PWD }}\`"
+            else
+              echo "⚠️ 未设置 ACCESS_PWD secret，当前是完全公开的"
+            fi
+            echo ""
+            echo "| 页面 | 地址 |"
+            echo "|---|---|"
+            echo "| 车主端 | \`$TUNNEL_URL/\` |"
+            echo "| 扫码入场 | \`$TUNNEL_URL/scan\` |"
+            echo "| 充值 | \`$TUNNEL_URL/recharge\` |"
+            echo "| 催缴管理 | \`$TUNNEL_URL/remind\` |"
+            echo "| 账户管理 | \`$TUNNEL_URL/accounts\` |"
+            echo "| 管理后台 | \`$TUNNEL_URL/admin\` |"
+            echo ""
+            echo "⏱️ 本次运行结束后地址会失效，需要重新触发。"
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: 保持服务在线
+        run: |
+          MINUTES=${{ github.event.inputs.minutes || '300' }}
+          # GitHub Actions 单个 job 最多 6 小时（360 分钟），留 10 分钟余量给清理
+          MAX_MINUTES=340
+          if [ "$MINUTES" -gt "$MAX_MINUTES" ]; then
+            MINUTES=$MAX_MINUTES
+          fi
+          echo "⏱️ 保持在线 $MINUTES 分钟"
+          # 每分钟检查一次服务还活着，挂了就在日志里说明
+          for i in $(seq 1 $MINUTES); do
+            sleep 60
+            if ! curl -sf http://127.0.0.1:8080/ > /dev/null; then
+              echo "⚠️ 服务异常，进程日志："
+              tail -50 app.log
+              exit 1
+            fi
+            if [ $(( i % 30 )) -eq 0 ]; then
+              echo "已运行 $i 分钟，地址：$TUNNEL_URL"
+            fi
+          done
+          echo "⏱️ 到达设定的时长，服务将下线"
+
+      - name: 清理
+        if: always()
+        run: |
+          [ -f tunnel.pid ] && kill $(cat tunnel.pid) 2>/dev/null || true
+          [ -f app.pid ] && kill $(cat app.pid) 2>/dev/null || true
+          echo "已清理"

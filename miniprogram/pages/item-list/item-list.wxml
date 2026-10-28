@@ -1,0 +1,57 @@
+<view class="page">
+    <view class="hero">
+        <text class="eyebrow">进出场流水</text>
+        <text class="title">全部记录</text>
+        <text class="subtitle">共 {{logs.length}} 条记录</text>
+    </view>
+
+    <view class="state-card" wx:if="{{viewState === 'loading'}}">
+        <text class="state-title">正在加载</text>
+    </view>
+
+    <view class="state-card" wx:elif="{{viewState === 'empty'}}">
+        <text class="state-icon">○</text>
+        <text class="state-title">暂无流水</text>
+        <text class="state-desc">在车主端做一次入场或缴费，这里就会有记录。</text>
+    </view>
+
+    <view class="state-card state-error" wx:elif="{{viewState === 'error'}}">
+        <text class="state-icon">!</text>
+        <text class="state-title">加载失败</text>
+        <text class="state-desc">{{errorMessage}}</text>
+        <button class="primary-button" bindtap="handleRetry">重试</button>
+    </view>
+
+    <view wx:else>
+        <view class="log-card" wx:for="{{logs}}" wx:key="id">
+            <view class="log-head">
+                <text class="log-plate">{{item.plate}}</text>
+                <text class="log-type">{{item.typeText}}</text>
+            </view>
+            <view class="log-grid">
+                <view class="log-cell">
+                    <text class="log-cell-label">车位</text>
+                    <text class="log-cell-value">{{item.spot}}</text>
+                </view>
+                <view class="log-cell">
+                    <text class="log-cell-label">通道</text>
+                    <text class="log-cell-value">{{item.channelText}}</text>
+                </view>
+                <view class="log-cell">
+                    <text class="log-cell-label">时长</text>
+                    <text class="log-cell-value">{{item.minutesText}}</text>
+                </view>
+                <view class="log-cell">
+                    <text class="log-cell-label">金额</text>
+                    <text class="log-cell-value is-money">{{item.feeText}}</text>
+                </view>
+            </view>
+            <text class="log-time">{{item.timeText}}</text>
+            <text class="log-note" wx:if="{{item.noteText !== ''}}">{{item.noteText}}</text>
+        </view>
+    </view>
+
+    <view class="back-row">
+        <button class="ghost-button full" bindtap="goBack">返回车主端</button>
+    </view>
+</view>

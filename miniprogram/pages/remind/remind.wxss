@@ -1,0 +1,147 @@
+/* 催缴页 */
+.page {
+    box-sizing: border-box;
+    min-height: 100vh;
+    padding: 40rpx 28rpx 64rpx;
+}
+
+.hero { display: flex; flex-direction: column; margin-bottom: 28rpx; }
+.eyebrow { color: #1d9e75; font-size: 22rpx; font-weight: 600; letter-spacing: 3rpx; }
+.title { margin-top: 12rpx; font-size: 44rpx; font-weight: 700; line-height: 1.25; }
+.subtitle { margin-top: 10rpx; color: #8a9099; font-size: 26rpx; line-height: 1.6; }
+
+.alert {
+    box-sizing: border-box;
+    margin-bottom: 20rpx;
+    padding: 22rpx 24rpx;
+    border-radius: 16rpx;
+    font-size: 26rpx;
+    line-height: 1.6;
+}
+.alert-ok { background: #e1f5ee; border: 2rpx solid #b8e0d0; color: #085041; }
+.alert-err { background: #fdeee6; border: 2rpx solid #f5c9b3; color: #a5372a; }
+
+.card {
+    box-sizing: border-box;
+    margin-bottom: 24rpx;
+    padding: 28rpx;
+    border-radius: 20rpx;
+    background: #ffffff;
+    box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04);
+}
+
+/* 统计 */
+.stat-row { display: flex; }
+.stat {
+    flex: 1;
+    padding: 20rpx 8rpx;
+    border-radius: 16rpx;
+    background: #f7f8fa;
+    text-align: center;
+}
+.stat-num { display: block; font-size: 44rpx; font-weight: 600; line-height: 1.2; }
+.stat-num.is-money { color: #ba7517; }
+.stat-lbl { display: block; margin-top: 4rpx; color: #8a9099; font-size: 22rpx; }
+
+/* 范围选择 */
+.range-row { display: flex; margin-top: 24rpx; flex-wrap: wrap; }
+.range {
+    margin: 0 12rpx 12rpx 0;
+    padding: 14rpx 24rpx;
+    border: 2rpx solid #dfe1e5;
+    border-radius: 12rpx;
+    color: #5f5e5a;
+    font-size: 24rpx;
+}
+.range.has-choice { border-color: #378add; background: #f5faff; color: #378add; }
+
+/* 待催条目 */
+.remind-item {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    margin-bottom: 18rpx;
+    padding: 26rpx;
+    border: 2rpx solid #ebedf0;
+    border-radius: 20rpx;
+    background: #ffffff;
+}
+.remind-main { flex: 1; min-width: 0; }
+.remind-head { display: flex; align-items: center; }
+.remind-plate { font-size: 32rpx; font-weight: 600; }
+.remind-kind {
+    margin-left: 14rpx;
+    padding: 4rpx 14rpx;
+    border-radius: 8rpx;
+    background: #e6f1fb;
+    color: #185fa5;
+    font-size: 22rpx;
+}
+.remind-meta {
+    display: block;
+    margin-top: 8rpx;
+    color: #8a9099;
+    font-size: 24rpx;
+}
+.remind-contact { margin-top: 12rpx; }
+.contact-tag {
+    display: inline-block;
+    margin-right: 12rpx;
+    padding: 4rpx 12rpx;
+    border-radius: 8rpx;
+    background: #f0f1f2;
+    color: #5f5e5a;
+    font-size: 22rpx;
+}
+.contact-warn {
+    display: inline-block;
+    padding: 4rpx 12rpx;
+    border-radius: 8rpx;
+    background: #fdf3e3;
+    color: #854f0b;
+    font-size: 22rpx;
+}
+.remind-btn {
+    flex: 0 0 auto;
+    margin: 0 0 0 20rpx;
+    padding: 0 30rpx;
+    border-radius: 14rpx;
+    background: #378add;
+    color: #ffffff;
+    font-size: 26rpx;
+    line-height: 72rpx;
+}
+
+/* 三态 */
+.state-card {
+    box-sizing: border-box;
+    display: flex;
+    min-height: 320rpx;
+    align-items: center;
+    flex-direction: column;
+    justify-content: center;
+    margin-bottom: 24rpx;
+    padding: 36rpx;
+    border: 2rpx solid #e5e8eb;
+    border-radius: 20rpx;
+    background: #ffffff;
+    text-align: center;
+}
+.state-error { border-color: #ffd8d6; }
+.state-icon { color: #1d9e75; font-size: 56rpx; font-weight: 700; }
+.state-title { margin-top: 16rpx; font-size: 32rpx; font-weight: 600; }
+.state-desc { margin-top: 10rpx; color: #646a73; font-size: 26rpx; line-height: 1.6; }
+
+.primary-button,
+.ghost-button {
+    box-sizing: border-box;
+    margin: 0 8rpx;
+    padding: 0 24rpx;
+    border-radius: 16rpx;
+    font-size: 30rpx;
+    line-height: 88rpx;
+}
+.primary-button { background: #378add; color: #ffffff; }
+.ghost-button { border: 2rpx solid #dfe1e5; background: #ffffff; color: #1f2329; }
+.full { width: 100%; margin: 24rpx 0 0; }
+.back-row { margin-top: 8rpx; }

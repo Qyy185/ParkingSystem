@@ -1,0 +1,75 @@
+<view class="page">
+    <view class="hero">
+        <text class="eyebrow">催缴管理</text>
+        <text class="title">会员到期提醒</text>
+        <text class="subtitle">租期到期前 7 天 / 3 天 / 1 天 / 当天各提醒一次</text>
+    </view>
+
+    <view class="alert alert-ok" wx:if="{{messageType === 'ok' && message !== ''}}">{{message}}</view>
+    <view class="alert alert-err" wx:if="{{messageType === 'err' && message !== ''}}">{{message}}</view>
+
+    <!-- 统计 -->
+    <view class="card">
+        <view class="stat-row">
+            <view class="stat">
+                <text class="stat-num">{{stats.pending}}</text>
+                <text class="stat-lbl">需提醒</text>
+            </view>
+            <view class="stat">
+                <text class="stat-num is-money">{{stats.noContact}}</text>
+                <text class="stat-lbl">缺联系方式</text>
+            </view>
+        </view>
+        <view class="range-row">
+            <view class="range {{withinDays === item.days ? 'has-choice' : ''}}"
+                  wx:for="{{rangeOptions}}" wx:key="days"
+                  data-days="{{item.days}}" bindtap="handleRangeChange">
+                {{item.label}}
+            </view>
+        </view>
+    </view>
+
+    <!-- 加载中 -->
+    <view class="state-card" wx:if="{{viewState === 'loading'}}">
+        <text class="state-title">正在加载</text>
+    </view>
+
+    <!-- 空态 -->
+    <view class="state-card" wx:elif="{{viewState === 'empty'}}">
+        <text class="state-icon">✓</text>
+        <text class="state-title">没有需要催缴的账户</text>
+        <text class="state-desc">未来 {{withinDays}} 天内没有会员租期到期。</text>
+    </view>
+
+    <!-- 错误态 -->
+    <view class="state-card state-error" wx:elif="{{viewState === 'error'}}">
+        <text class="state-icon">!</text>
+        <text class="state-title">加载失败</text>
+        <text class="state-desc">{{message}}</text>
+        <button class="primary-button" bindtap="handleRetry">重试</button>
+    </view>
+
+    <!-- 待催列表 -->
+    <view wx:else>
+        <view class="remind-item" wx:for="{{pending}}" wx:key="plate">
+            <view class="remind-main">
+                <view class="remind-head">
+                    <text class="remind-plate">{{item.plate}}</text>
+                    <text class="remind-kind">{{item.kind === 'yearly' ? '年租' : '月租'}}</text>
+                </view>
+                <text class="remind-meta">{{item.holder}} · 剩余 {{item.daysLeft}} 天 · 到期 {{item.expireDate}}</text>
+                <view class="remind-contact">
+                    <text class="contact-tag" wx:if="{{item.phone !== ''}}">短信 {{item.phone}}</text>
+                    <text class="contact-tag" wx:if="{{item.wechat !== ''}}">微信 {{item.wechat}}</text>
+                    <text class="contact-warn" wx:if="{{item.phone === '' && item.wechat === ''}}">缺联系方式，发不出去</text>
+                </view>
+            </view>
+            <button class="primary-button remind-btn" data-plate="{{item.plate}}"
+                    bindtap="handleRemind" disabled="{{submitting}}">催缴</button>
+        </view>
+    </view>
+
+    <view class="back-row">
+        <button class="ghost-button full" bindtap="goBack">返回车主端</button>
+    </view>
+</view>

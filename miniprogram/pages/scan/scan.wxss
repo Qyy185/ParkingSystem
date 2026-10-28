@@ -1,0 +1,154 @@
+/* 扫码页 */
+.page {
+    box-sizing: border-box;
+    min-height: 100vh;
+    padding: 40rpx 28rpx 64rpx;
+}
+
+.hero { display: flex; flex-direction: column; margin-bottom: 28rpx; }
+.eyebrow { color: #1d9e75; font-size: 22rpx; font-weight: 600; letter-spacing: 3rpx; }
+.title { margin-top: 12rpx; font-size: 44rpx; font-weight: 700; line-height: 1.25; }
+.subtitle { margin-top: 10rpx; color: #8a9099; font-size: 26rpx; line-height: 1.6; }
+
+.alert {
+    box-sizing: border-box;
+    margin-bottom: 20rpx;
+    padding: 22rpx 24rpx;
+    border-radius: 16rpx;
+    font-size: 26rpx;
+    line-height: 1.6;
+}
+.alert-err { background: #fdeee6; border: 2rpx solid #f5c9b3; color: #a5372a; }
+
+.card {
+    box-sizing: border-box;
+    margin-bottom: 24rpx;
+    padding: 28rpx;
+    border-radius: 20rpx;
+    background: #ffffff;
+    box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.04);
+}
+
+/* ---- 取景框 ---- */
+.scan-view {
+    position: relative;
+    box-sizing: border-box;
+    height: 380rpx;
+    margin-bottom: 24rpx;
+    border-radius: 24rpx;
+    background: #1f2329;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.scan-corner {
+    position: absolute;
+    width: 44rpx;
+    height: 44rpx;
+    border: 4rpx solid #5ac8fa;
+}
+.scan-corner.tl { top: 28rpx; left: 28rpx; border-right: 0; border-bottom: 0; border-radius: 8rpx 0 0 0; }
+.scan-corner.tr { top: 28rpx; right: 28rpx; border-left: 0; border-bottom: 0; border-radius: 0 8rpx 0 0; }
+.scan-corner.bl { bottom: 28rpx; left: 28rpx; border-right: 0; border-top: 0; border-radius: 0 0 0 8rpx; }
+.scan-corner.br { bottom: 28rpx; right: 28rpx; border-left: 0; border-top: 0; border-radius: 0 0 8rpx 0; }
+.scan-beam {
+    position: absolute;
+    left: 8%;
+    right: 8%;
+    height: 4rpx;
+    background: #378add;
+    opacity: 0.75;
+    animation: scan-sweep 2.4s ease-in-out infinite;
+}
+@keyframes scan-sweep {
+    0%, 100% { top: 14%; }
+    50% { top: 84%; }
+}
+
+.scan-idle { display: flex; align-items: center; flex-direction: column; }
+.scan-icon {
+    position: relative;
+    width: 92rpx;
+    height: 92rpx;
+    margin-bottom: 20rpx;
+    border: 4rpx solid #5f5e5a;
+    border-radius: 16rpx;
+}
+.scan-icon::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 32rpx;
+    height: 32rpx;
+    margin: -16rpx 0 0 -16rpx;
+    border: 4rpx solid #5f5e5a;
+    border-radius: 50%;
+}
+.scan-icon.is-busy {
+    border-color: #378add;
+    border-top-color: transparent;
+    animation: spin 1s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+.scan-text { color: #b4b2a9; font-size: 28rpx; }
+.scan-sub { margin-top: 6rpx; color: #6b6a66; font-size: 24rpx; }
+
+.scan-result { display: flex; align-items: center; flex-direction: column; }
+.scan-plate {
+    color: #ffffff;
+    font-size: 60rpx;
+    font-weight: 600;
+    letter-spacing: 4rpx;
+}
+.scan-kind {
+    margin-top: 16rpx;
+    padding: 8rpx 24rpx;
+    border-radius: 20rpx;
+    color: #ffffff;
+    font-size: 24rpx;
+}
+.scan-kind.is-member { background: #1d9e75; }
+.scan-kind.is-temp { background: #ba7517; }
+.scan-spot { margin-top: 20rpx; color: #b4b2a9; font-size: 24rpx; text-align: center; }
+
+/* ---- 表单 ---- */
+.field-label { display: block; margin-bottom: 12rpx; color: #5f5e5a; font-size: 26rpx; }
+.required { color: #d85a30; }
+.field-input {
+    box-sizing: border-box;
+    width: 100%;
+    height: 88rpx;
+    padding: 0 24rpx;
+    border: 2rpx solid #dfe1e5;
+    border-radius: 16rpx;
+    font-size: 30rpx;
+}
+
+.primary-button,
+.ghost-button {
+    box-sizing: border-box;
+    margin: 0 8rpx;
+    padding: 0 24rpx;
+    border-radius: 16rpx;
+    font-size: 30rpx;
+    line-height: 88rpx;
+}
+.grow { flex: 1; }
+.primary-button { background: #378add; color: #ffffff; }
+.ghost-button { border: 2rpx solid #dfe1e5; background: #ffffff; color: #1f2329; }
+.full { width: 100%; margin: 24rpx 0 0; }
+.btn-row { display: flex; margin-top: 24rpx; }
+.back-row { margin-top: 8rpx; }
+
+.tip {
+    display: block;
+    margin-top: 20rpx;
+    color: #8a9099;
+    font-size: 24rpx;
+    line-height: 1.7;
+    text-align: center;
+}

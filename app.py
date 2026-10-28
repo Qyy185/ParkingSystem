@@ -6,12 +6,20 @@ Flask 服务端
 所有页面由 Python 的模板引擎渲染，所有交互靠 HTML 表单提交。
 
 启动：python app.py
+
+公网部署（v0.4）：
+    PORT          —— 平台注入的端口，缺失则用 3000
+    SECRET_KEY    —— session 密钥，缺失则随机生成（重启后旧 session 失效）
+    ACCESS_PWD    —— 访问口令。设了它，所有页面都要先输入口令才能进。
+                     不设 = 完全公开（本地开发默认）
 """
 
+import os
+import secrets
 import socket
 import time
 
-from flask import Flask, redirect, render_template, request, url_for
+from flask import Flask, redirect, render_template, request, session, url_for
 
 import account
 import notify
@@ -21,11 +29,25 @@ import remind
 import store
 
 app = Flask(__name__)
-# session 用来存「待缴费的车牌」。secret_key 是给 session 加密用的，
-# 正式项目里应该从环境变量读，不要写死在代码里。
-app.secret_key = "parking-demo-secret-key"
 
-PORT = 3000
+# ---------------------------------------------------------
+#  配置（v0.4：适配公网部署）
+# ---------------------------------------------------------
+
+# ★ session 密钥：从环境变量读，读不到就随机生成。
+#   原来写死 "parking-demo-secret-key" —— 公网上任何人都能用这个密钥
+#   伪造 session cookie 冒充别人。随机生成就解决这个问题。
+_SECRET = os.environ.get("SECRET_KEY")
+if not _SECRET:
+    _SECRET = secrets.token_hex(32)
+app.secret_key = _SECRET
+
+# 端口：PaaS 平台（Render / Railway / Heroku）会注入 PORT 环境变量。
+# 写死 3000 的话，平台会以为你的服务没监听它给的端口，直接判定启动失败。
+PORT = int(os.environ.get("PORT", "3000"))
+
+# 访问口令：不设就是完全公开。面试演示时设上，防止被人刷数据。
+ACCESS_PWD = os.environ.get("ACCESS_PWD", "").strip()
 
 
 def fmt_time(ts):
@@ -92,6 +114,53 @@ def lan_ip():
     finally:
         s.close()
     return ip if ip.startswith(("192.168.", "10.", "172.")) else ""
+
+
+# ----------------------------------------------------------
+#  访问口令（v0.4）
+# ----------------------------------------------------------
+# 公网部署后，任何拿到链接的人都能进后台乱改数据。
+# 设一个口令，进页面先要输入，验证过就记在 session 里。
+#
+# 不设 ACCESS_PWD = 完全公开，本地开发不受影响。
+
+@app.before_request
+def check_access_password():
+    """每个请求前检查访问口令。
+
+    放行的情况：
+      · 没设口令（ACCESS_PWD 为空）→ 完全公开
+      · 已经验证过（session 里有标记）→ 放行
+      · 正在访问口令页或提交口令 → 放行
+      · 静态资源 → 放行（否则页面样式都加载不出来）
+    """
+    if not ACCESS_PWD:
+        return None
+    if session.get("access_ok"):
+        return None
+    # 口令页本身不能拦，否则死循环
+    if request.path == "/access":
+        return None
+    if request.path.startswith("/static/"):
+        return None
+    return redirect(url_for("access_page"))
+
+
+@app.route("/access", methods=["GET", "POST"])
+def access_page():
+    """口令输入页。"""
+    if not ACCESS_PWD:
+        return redirect(url_for("index"))
+
+    error = ""
+    if request.method == "POST":
+        given = (request.form.get("pwd") or "").strip()
+        if given == ACCESS_PWD:
+            session["access_ok"] = True
+            return redirect(request.args.get("next") or url_for("index"))
+        error = "口令不对"
+
+    return render_template("access.html", error=error)
 
 
 # ----------------------------------------------------------
@@ -573,7 +642,19 @@ if __name__ == "__main__":
     print("  车主端:   http://localhost:%d/" % PORT)
     print("  扫码入场: http://localhost:%d/scan" % PORT)
     print("  充值:     http://localhost:%d/recharge" % PORT)
+    print("  催缴:     http://localhost:%d/remind" % PORT)
     print("  账户管理: http://localhost:%d/accounts" % PORT)
     print("  管理后台: http://localhost:%d/admin" % PORT)
+    if ACCESS_PWD:
+        print("  访问口令: 已启用（不设 ACCESS_PWD 可关闭）")
     print("=" * 60)
-    app.run(host="0.0.0.0", port=PORT, debug=False)
+    # ★ 优先用 waitress —— 纯 Python 实现，能在 Windows 上跑，8 线程并发。
+    #   gunicorn 只在 Linux 上能用（公网部署环境基本都是 Linux），
+    #   所以公网那边直接命令行 `gunicorn app:app` 启动，不走这个分支。
+    try:
+        from waitress import serve
+        print("  运行模式: waitress（多线程）")
+        serve(app, host="0.0.0.0", port=PORT, threads=8)
+    except ImportError:
+        print("  运行模式: Flask 开发服务器（单线程，仅限本地）")
+        app.run(host="0.0.0.0", port=PORT, debug=False)

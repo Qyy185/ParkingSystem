@@ -1,0 +1,105 @@
+<view class="page">
+    <!-- 顶部：车位概览 -->
+    <view class="hero">
+        <text class="eyebrow">智慧停车</text>
+        <text class="title">地下停车场</text>
+        <text class="subtitle">共 {{spots.length}} 个车位 · 空闲 {{freeCount}} · 已占用 {{occupiedCount}}</text>
+    </view>
+
+    <!-- 提示 -->
+    <view class="alert alert-ok" wx:if="{{messageType === 'ok' && message !== ''}}">{{message}}</view>
+    <view class="alert alert-err" wx:if="{{messageType === 'err' && message !== ''}}">{{message}}</view>
+
+    <!-- 待缴费提示 -->
+    <view class="fee-card" wx:if="{{feeInfo !== null}}">
+        <view class="fee-row">
+            <text class="fee-plate">{{feeInfo.plate}}</text>
+            <text class="fee-channel">{{feeInfo.channelText}}</text>
+        </view>
+        <view class="fee-amount">
+            应付 <text class="fee-num">{{feeInfo.fee}}</text> 元
+        </view>
+        <text class="fee-minutes">停放 {{feeInfo.minutesText}}</text>
+        <view class="fee-actions">
+            <button class="ghost-button" bindtap="handleCancelPay">取消</button>
+            <button class="primary-button grow" bindtap="handlePay" loading="{{submitting}}" disabled="{{submitting}}">
+                确认缴费
+            </button>
+        </view>
+    </view>
+
+    <!-- 车位格子 -->
+    <view class="card">
+        <view class="card-head">
+            <text class="card-title">车位总览</text>
+            <text class="card-link" bindtap="goLogs">查看流水</text>
+        </view>
+        <view class="grid">
+            <view class="cell {{item.status === 'free' ? 'is-free' : 'is-busy'}}" wx:for="{{spots}}" wx:key="id">
+                <text class="cell-id">{{item.id}}</text>
+                <text class="cell-plate">{{item.plate}}</text>
+                <text class="cell-channel {{item.channelText === '会员' ? 'is-member' : ''}}" wx:if="{{item.channelText !== ''}}">{{item.channelText}}</text>
+            </view>
+        </view>
+    </view>
+
+    <!-- 主操作 -->
+    <view class="action-row">
+        <button class="primary-button grow" bindtap="openEntry">入场</button>
+        <button class="ghost-button grow" bindtap="openExit">出场缴费</button>
+    </view>
+    <view class="action-row">
+        <button class="ghost-button grow" bindtap="goScan">扫码入场</button>
+        <button class="ghost-button grow" bindtap="goRecharge">会员充值</button>
+    </view>
+    <view class="action-row">
+        <button class="ghost-button grow" bindtap="goRemind">催缴管理</button>
+        <button class="ghost-button grow" bindtap="handleReset">重置数据</button>
+    </view>
+
+    <!-- 最近流水 -->
+    <view class="card" wx:if="{{logs.length > 0}}">
+        <view class="card-head">
+            <text class="card-title">最近流水</text>
+            <text class="card-link" bindtap="goLogs">全部</text>
+        </view>
+        <view class="log-item" wx:for="{{logs}}" wx:key="id">
+            <view class="log-main">
+                <text class="log-plate">{{item.plate}}</text>
+                <text class="log-meta">{{item.typeText}} · {{item.spot}} · {{item.channelText}}</text>
+            </view>
+            <view class="log-side">
+                <text class="log-fee" wx:if="{{item.feeText !== ''}}">{{item.feeText}}</text>
+                <text class="log-time">{{item.timeText}}</text>
+            </view>
+        </view>
+    </view>
+
+    <!-- 底部弹层 -->
+    <view class="editor-mask" wx:if="{{showSheet}}" bindtap="closeSheet"></view>
+    <view class="editor-sheet" wx:if="{{showSheet}}">
+        <text class="sheet-title">{{sheetMode === 'entry' ? '入场登记' : '出场缴费'}}</text>
+        <text class="sheet-error" wx:if="{{formError !== ''}}">{{formError}}</text>
+
+        <view class="field-group">
+            <text class="field-label">车牌号 <text class="required">*</text></text>
+            <input class="field-input" placeholder="如 黑A12345" value="{{plate}}"
+                   bindinput="handlePlateInput" maxlength="12" />
+        </view>
+
+        <text class="sheet-hint" wx:if="{{sheetMode === 'entry'}}">
+            会员车辆入场不计停车费，临停车按小时计费。
+        </text>
+        <text class="sheet-hint" wx:else>
+            先查费用，确认后再付款放行。
+        </text>
+
+        <view class="sheet-actions">
+            <button class="sheet-button" bindtap="closeSheet" disabled="{{submitting}}">取消</button>
+            <button class="sheet-button primary-button" bindtap="handleSubmit"
+                    loading="{{submitting}}" disabled="{{submitting}}">
+                {{sheetMode === 'entry' ? '确认入场' : '查询费用'}}
+            </button>
+        </view>
+    </view>
+</view>

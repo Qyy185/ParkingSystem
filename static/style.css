@@ -439,6 +439,30 @@ body {
   color: #5f5e5a;
 }
 
+/* ---- 访问口令页（v0.4）---- */
+.access-card {
+  margin-top: 8vh;
+  text-align: center;
+  padding: 32px 20px;
+}
+.access-lock { font-size: 40px; line-height: 1; }
+.access-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 12px 0 0;
+}
+.access-sub {
+  font-size: 13px;
+  color: #8a9099;
+  margin: 6px 0 22px;
+}
+.access-card code {
+  background: #f0f1f2;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
 /* ---- 宽限期标记（v0.3.1）---- */
 .grace-tip {
   font-size: 11px;

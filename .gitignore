@@ -6,3 +6,9 @@ data/*.json
 tools/_*.txt
 tools/_resume_src/
 tools/_*
+
+# 本地运行/调试产生的日志和临时文件
+_*.log
+_tunnel.log
+_gunicorn.log
+miniprogram/_store_test.js

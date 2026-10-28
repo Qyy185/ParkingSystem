@@ -1,0 +1,86 @@
+<view class="page">
+    <view class="hero">
+        <text class="eyebrow">会员充值</text>
+        <text class="title">开通月租 / 年租</text>
+        <text class="subtitle">充值后入场不计停车费</text>
+    </view>
+
+    <view class="alert alert-ok" wx:if="{{success !== ''}}">{{success}}</view>
+    <view class="alert alert-err" wx:if="{{error !== ''}}">{{error}}</view>
+
+    <!-- 当前账户 -->
+    <view class="balance-card" wx:if="{{current !== null}}">
+        <text class="balance-label">当前余额</text>
+        <text class="balance-num">{{current.balance}} <text class="balance-unit">元</text></text>
+        <text class="balance-meta">有效期至 {{current.expiresAtText}}</text>
+    </view>
+
+    <!-- 车牌 -->
+    <view class="card">
+        <text class="field-label">车牌号 <text class="required">*</text></text>
+        <input class="field-input" placeholder="如 黑A12345" value="{{plate}}"
+               bindinput="handlePlateInput" maxlength="12" />
+    </view>
+
+    <!-- 选套餐 -->
+    <view class="card">
+        <text class="card-title">第一步 · 选套餐</text>
+        <view class="plan-grid">
+            <view class="plan {{kind === item.kind ? 'has-choice' : ''}}"
+                  wx:for="{{kindOptions}}" wx:key="kind"
+                  data-kind="{{item.kind}}" bindtap="handleKindChange">
+                <text class="plan-name">{{item.label}}</text>
+                <text class="plan-desc">{{item.desc}}</text>
+                <text class="plan-price">{{item.priceText}}</text>
+            </view>
+        </view>
+    </view>
+
+    <!-- 选时长 -->
+    <view class="card">
+        <text class="card-title">第二步 · 选时长</text>
+        <view class="period-list">
+            <view class="period {{periods === item.periods ? 'has-choice' : ''}}"
+                  wx:for="{{periodOptions}}" wx:key="periods"
+                  data-periods="{{item.periods}}" bindtap="handlePeriodChange">
+                <text class="period-label">{{item.label}}</text>
+                <text class="period-price">{{item.priceText}}</text>
+            </view>
+        </view>
+    </view>
+
+    <!-- 确认 -->
+    <view class="card">
+        <view class="confirm-row">
+            <text class="confirm-label">本次充值</text>
+            <text class="confirm-price">{{selectedPrice}} 元</text>
+        </view>
+        <text class="confirm-sub">{{selectedLabel}} · 充值金额进入账户余额，有效期自动延长</text>
+        <button class="primary-button full" bindtap="handleRecharge"
+                loading="{{submitting}}" disabled="{{submitting}}">
+            确认充值 {{selectedPrice}} 元
+        </button>
+    </view>
+
+    <!-- 价格表 -->
+    <view class="card">
+        <text class="card-title">套餐说明</text>
+        <view class="price-table">
+            <view class="price-row price-head">
+                <text class="price-cell">套餐</text>
+                <text class="price-cell">时长</text>
+                <text class="price-cell">价格</text>
+                <text class="price-cell">折合每月</text>
+            </view>
+            <view class="price-row"><text class="price-cell">月租</text><text class="price-cell">1 个月</text><text class="price-cell">300 元</text><text class="price-cell">300 元</text></view>
+            <view class="price-row"><text class="price-cell">月租</text><text class="price-cell">3 个月</text><text class="price-cell">850 元</text><text class="price-cell">约 283 元</text></view>
+            <view class="price-row"><text class="price-cell">月租</text><text class="price-cell">6 个月</text><text class="price-cell">1600 元</text><text class="price-cell">约 267 元</text></view>
+            <view class="price-row"><text class="price-cell">月租</text><text class="price-cell">12 个月</text><text class="price-cell">3000 元</text><text class="price-cell">250 元</text></view>
+            <view class="price-row"><text class="price-cell">年租</text><text class="price-cell">1 年</text><text class="price-cell">2700 元</text><text class="price-cell">225 元</text></view>
+        </view>
+    </view>
+
+    <view class="back-row">
+        <button class="ghost-button full" bindtap="goBack">返回车主端</button>
+    </view>
+</view>

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>地下停车场 · 请输入访问口令</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap">
+  <section class="card access-card">
+    <div class="access-lock">🔒</div>
+    <h1 class="access-title">地下停车场系统</h1>
+    <p class="access-sub">该系统部署在公网，请输入访问口令</p>
+
+    {% if error %}
+    <div class="alert alert-err">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('access_page') }}">
+      <div class="row" style="margin-bottom: 12px;">
+        <input class="input" type="password" name="pwd" placeholder="访问口令"
+               autocomplete="current-password" required autofocus>
+      </div>
+      <button class="btn primary" type="submit" style="width: 100%;">进入系统</button>
+    </form>
+
+    <p class="tip">
+      口令由部署方通过环境变量 <code>ACCESS_PWD</code> 设置。
+    </p>
+  </section>
+</div>
+</body>
+</html>
