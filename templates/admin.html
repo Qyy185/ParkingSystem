@@ -13,6 +13,12 @@
     <p class="sub">车位总览 / 进出场流水 / 营收统计</p>
   </header>
 
+  <div class="nav-links">
+    <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
+    <a class="nav-link" href="{{ url_for('scan') }}">扫码入场</a>
+    <a class="nav-link" href="{{ url_for('accounts') }}">账户管理</a>
+  </div>
+
   <section class="card">
     <div class="stat-row">
       <div class="stat"><span class="num">{{ spots|length }}</span><span class="lbl">总车位</span></div>
@@ -37,7 +43,8 @@
       <table class="table">
         <thead>
           <tr>
-            <th>时间</th><th>车牌</th><th>事件</th><th>车位</th><th>时长</th><th>金额</th>
+            <th>时间</th><th>车牌</th><th>事件</th><th>车位</th>
+            <th>通道</th><th>时长</th><th>金额</th>
           </tr>
         </thead>
         <tbody>
@@ -48,12 +55,14 @@
               <td class="plate">{{ log.plate }}</td>
               <td>{{ '入场' if log.type == 'in' else ('缴费' if log.type == 'pay' else log.type) }}</td>
               <td>{{ log.spot }}</td>
+              <td><span class="channel-tag {{ log.channel if log.channel else 'temp' }}">
+                {{ '月租' if log.channel == 'monthly' else '临停' }}</span></td>
               <td>{{ log.minutes | fmt_duration if log.minutes is defined else '' }}</td>
               <td>{{ log.fee ~ ' 元' if log.fee is defined else '' }}</td>
             </tr>
             {% endfor %}
           {% else %}
-            <tr><td colspan="6" class="tip">暂无记录</td></tr>
+            <tr><td colspan="7" class="tip">暂无记录</td></tr>
           {% endif %}
         </tbody>
       </table>
@@ -62,6 +71,10 @@
 
   <footer class="foot">
     <a href="{{ url_for('index') }}">← 返回车主端</a>
+    ·
+    <a href="{{ url_for('scan') }}">扫码入场</a>
+    ·
+    <a href="{{ url_for('accounts') }}">账户管理</a>
   </footer>
 </div>
 </body>

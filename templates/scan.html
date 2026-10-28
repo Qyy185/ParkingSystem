@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>地下停车场 · 扫码入场</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <h1>扫码入场</h1>
+    <p class="sub">模拟车牌识别摄像头 · 扫到车牌后自动分流</p>
+  </header>
+
+  {% if msg %}
+  <div class="alert alert-err">{{ msg }}</div>
+  {% endif %}
+  {% if ok_msg %}
+  <div class="alert alert-ok">{{ ok_msg }}</div>
+  {% endif %}
+
+  <!-- 摄像头取景框：模拟现实里的车牌识别一体机 -->
+  <section class="card scanner">
+    <div class="scan-view">
+      <div class="scan-corner tl"></div>
+      <div class="scan-corner tr"></div>
+      <div class="scan-corner bl"></div>
+      <div class="scan-corner br"></div>
+      <div class="scan-beam"></div>
+
+      {% if detected %}
+        <div class="scan-result">
+          <div class="scan-plate">{{ detected }}</div>
+          <div class="scan-kind {{ detected_kind }}">
+            {{ detected_label }}
+          </div>
+        </div>
+      {% elif capturing %}
+        <div class="scan-idle">
+          <div class="scan-idle-icon"></div>
+          <p class="scan-idle-text">识别中…</p>
+          <p class="scan-idle-sub">请在下方输入摄像头读到的车牌</p>
+        </div>
+      {% else %}
+        <div class="scan-idle">
+          <div class="scan-idle-icon"></div>
+          <p class="scan-idle-text">摄像头就绪</p>
+          <p class="scan-idle-sub">点击下方按钮模拟识别到车牌</p>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if detected %}
+      <form method="post" action="{{ url_for('scan_confirm') }}">
+        <input type="hidden" name="plate" value="{{ detected }}">
+        <div class="row">
+          <button class="btn primary grow" type="submit">确认入场</button>
+        </div>
+      </form>
+      <div class="row scanner-actions">
+        <a class="btn grow" href="{{ url_for('scan') }}">重新扫描</a>
+        <a class="btn grow" href="{{ url_for('index') }}">返回车主端</a>
+      </div>
+    {% elif capturing %}
+      <form method="post" action="{{ url_for('scan_confirm') }}">
+        <div class="row">
+          <input class="input" type="text" name="plate" placeholder="摄像头识别到的车牌，如 黑A12345"
+                 maxlength="12" autocomplete="off" required autofocus>
+          <button class="btn primary" type="submit">识别</button>
+        </div>
+      </form>
+      <div class="row scanner-actions">
+        <a class="btn grow" href="{{ url_for('scan') }}">取消</a>
+      </div>
+    {% else %}
+      <form method="post" action="{{ url_for('scan_detect') }}">
+        <div class="row">
+          <button class="btn primary grow" type="submit">模拟扫描</button>
+        </div>
+      </form>
+      <p class="tip">
+        现实中这里是一台车牌识别摄像头，扫到牌就自动开闸。<br>
+        现在先手动输入车牌，等价于摄像头识别出了这个号。
+      </p>
+    {% endif %}
+  </section>
+
+  <!-- 手动输入：摄像头识别失败时的备用通道 -->
+  <section class="card">
+    <h2>手动输入车牌</h2>
+    <form method="post" action="{{ url_for('scan_confirm') }}">
+      <div class="row">
+        <input class="input" type="text" name="plate" placeholder="车牌号，如 黑A12345"
+               maxlength="12" autocomplete="off" required>
+        <button class="btn primary" type="submit">入场</button>
+      </div>
+    </form>
+    <p class="tip">
+      输入后系统按车牌查账户：<br>
+      <strong>月租</strong> 走月租通道不计费 · <strong>临停</strong> 走临停通道按小时计费
+    </p>
+  </section>
+
+  <footer class="foot">
+    <a href="{{ url_for('index') }}">← 返回车主端</a>
+    ·
+    <a href="{{ url_for('accounts') }}">账户管理</a>
+    ·
+    <a href="{{ url_for('admin') }}">管理后台</a>
+  </footer>
+</div>
+</body>
+</html>

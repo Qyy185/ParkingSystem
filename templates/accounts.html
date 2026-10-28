@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>地下停车场 · 账户管理</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap wide">
+  <header class="head">
+    <h1>账户管理</h1>
+    <p class="sub">车牌绑定账户 · 账户只标记月租 / 临停，不涉及付款</p>
+  </header>
+
+  {% if msg %}
+  <div class="alert alert-err">{{ msg }}</div>
+  {% endif %}
+  {% if ok_msg %}
+  <div class="alert alert-ok">{{ ok_msg }}</div>
+  {% endif %}
+
+  <section class="card">
+    <div class="stat-row">
+      <div class="stat"><span class="num">{{ stats.total }}</span><span class="lbl">账户总数</span></div>
+      <div class="stat"><span class="num free">{{ stats.monthly }}</span><span class="lbl">月租</span></div>
+      <div class="stat"><span class="num busy">{{ stats.temporary }}</span><span class="lbl">临停</span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>新增账户</h2>
+    <form method="post" action="{{ url_for('account_add') }}">
+      <div class="inline-form">
+        <input class="input" type="text" name="plate" placeholder="车牌号，如 黑A12345"
+               maxlength="12" autocomplete="off" required>
+        <select name="kind">
+          <option value="monthly">月租</option>
+          <option value="temporary">临停</option>
+        </select>
+        <input class="input" type="text" name="holder" placeholder="车主姓名（选填）"
+               maxlength="20" autocomplete="off">
+        <input class="input" type="text" name="note" placeholder="备注（选填）"
+               maxlength="40" autocomplete="off">
+        <button class="btn primary" type="submit">登记</button>
+      </div>
+    </form>
+    <p class="tip">车牌已存在时会更新它的类型，不会重复创建。</p>
+  </section>
+
+  <section class="card">
+    <h2>账户列表</h2>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>车牌</th><th>类型</th><th>车主</th><th>备注</th>
+            <th>注册时间</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if accounts %}
+            {% for acc in accounts %}
+            <tr>
+              <td class="plate">{{ acc.plate }}</td>
+              <td><span class="kind-badge {{ acc.kind }}">{{ kind_label(acc.kind) }}</span></td>
+              <td>{{ acc.holder or '—' }}</td>
+              <td>{{ acc.note or '—' }}</td>
+              <td>{{ acc.createdAt | fmt_time }}</td>
+              <td class="actions">
+                <form method="post" action="{{ url_for('account_toggle') }}">
+                  <input type="hidden" name="plate" value="{{ acc.plate }}">
+                  <input type="hidden" name="kind"
+                         value="{{ 'temporary' if acc.kind == 'monthly' else 'monthly' }}">
+                  <button class="btn" type="submit">
+                    改为{{ '临停' if acc.kind == 'monthly' else '月租' }}
+                  </button>
+                </form>
+                <form method="post" action="{{ url_for('account_delete') }}"
+                      onsubmit="return confirm('确定删除账户 {{ acc.plate }}？');">
+                  <input type="hidden" name="plate" value="{{ acc.plate }}">
+                  <button class="btn" type="submit">删除</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="6" class="tip">还没有账户</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <a href="{{ url_for('index') }}">← 返回车主端</a>
+    ·
+    <a href="{{ url_for('scan') }}">扫码入场</a>
+    ·
+    <a href="{{ url_for('admin') }}">管理后台</a>
+  </footer>
+</div>
+</body>
+</html>

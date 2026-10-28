@@ -14,33 +14,39 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(ROOT, "data")
 FILE = os.path.join(DATA_DIR, "parking.json")
 LOG_FILE = os.path.join(DATA_DIR, "logs.json")
+ACCOUNT_FILE = os.path.join(DATA_DIR, "accounts.json")
 
 
-def read_all():
-    """读所有车位。文件不存在 / 损坏 / 不是列表，一律返回空列表，绝不让程序挂掉。"""
+def _read_list(path):
+    """读一个 JSON 数组文件。文件不存在 / 损坏 / 不是列表，一律返回空列表。"""
     try:
-        with open(FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, list) else []
     except (OSError, json.JSONDecodeError):
         return []
 
 
-def write_all(data):
-    """写所有车位。data 文件夹不存在会自动建。"""
+def _write_list(path, data):
+    """写一个 JSON 数组文件。data 文件夹不存在会自动建。"""
     os.makedirs(DATA_DIR, exist_ok=True)
-    with open(FILE, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def read_all():
+    """读所有车位。"""
+    return _read_list(FILE)
+
+
+def write_all(data):
+    """写所有车位。"""
+    _write_list(FILE, data)
 
 
 def read_logs():
     """读所有流水。"""
-    try:
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except (OSError, json.JSONDecodeError):
-        return []
+    return _read_list(LOG_FILE)
 
 
 def add_log(entry):
@@ -49,9 +55,26 @@ def add_log(entry):
     record = {"time": now_ms()}
     record.update(entry)
     logs.append(record)
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(LOG_FILE, "w", encoding="utf-8") as f:
-        json.dump(logs, f, ensure_ascii=False, indent=2)
+    _write_list(LOG_FILE, logs)
+
+
+# ---------------------------------------------------------
+# 账户表（v0.2.1）
+# ---------------------------------------------------------
+# 账户 = 车牌 + 类型标记。类型只有两种：
+#   monthly    月租车主
+#   temporary  临停车主
+# 账户里【没有金额、没有余额、没有付款记录】——
+# 它只回答一个问题：这辆车按哪套规则处理。
+
+def read_accounts():
+    """读所有账户。"""
+    return _read_list(ACCOUNT_FILE)
+
+
+def write_accounts(data):
+    """写所有账户。"""
+    _write_list(ACCOUNT_FILE, data)
 
 
 def now_ms():
@@ -60,7 +83,11 @@ def now_ms():
 
 
 def today_revenue():
-    """今天收了多少钱。管理后台用。"""
+    """今天收了多少钱。管理后台用。
+
+    只统计 `type == "pay"` 的流水 —— 这是【临停】付款。
+    月租账户的入场不产生任何 pay 记录，所以不会混进来。
+    """
     today = time.strftime("%Y-%m-%d")
     total = 0
     for log in read_logs():
@@ -70,3 +97,4 @@ def today_revenue():
         if stamp == today:
             total += log.get("fee", 0)
     return total
+

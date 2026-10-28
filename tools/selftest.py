@@ -27,6 +27,7 @@ if not os.path.exists(PY):
     PY = sys.executable
 
 sys.path.insert(0, ROOT)
+import account  # noqa: E402
 import parking  # noqa: E402
 import plate as plate_mod  # noqa: E402
 import store  # noqa: E402
@@ -43,11 +44,12 @@ def check(name, ok, extra=""):
 # ============================================================
 
 def reset_data():
-    """把运行数据复位到 16 个空车位、0 条流水。"""
+    """把运行数据复位到 16 个空车位、0 条流水、0 个账户。"""
     store.write_all(parking.init_spots())
     os.makedirs(store.DATA_DIR, exist_ok=True)
     with open(store.LOG_FILE, "w", encoding="utf-8") as f:
         json.dump([], f, ensure_ascii=False, indent=2)
+    store.write_accounts([])
 
 
 def fee_at(minutes):
@@ -173,6 +175,172 @@ def test_exit_unknown_car():
 
 
 # ============================================================
+# A2. 账户与分流（v0.2.1）
+# ============================================================
+
+def test_account_register():
+    """账户登记、查询、改类型、删除。"""
+    reset_data()
+
+    r = account.register("黑A12345", account.MONTHLY, "张三", "月租车主")
+    check("登记月租账户成功", r.get("ok") is True and r.get("created") is True,
+          r.get("msg", ""))
+    check("账户车牌已归一化",
+          r["account"]["plate"] == "黑A12345", r["account"]["plate"])
+
+    # 归一化后应能查到
+    found = account.find_by_plate("黑a 12345")
+    check("按归一化车牌能查到账户", found is not None)
+    check("查到的是月租类型",
+          found is not None and found["kind"] == account.MONTHLY)
+
+    # 重复登记 = 更新，不是新建
+    r2 = account.register("黑A12345", account.TEMPORARY)
+    check("重复登记是更新不是新建",
+          r2.get("ok") is True and r2.get("created") is False)
+    check("账户总数仍为 1", len(account.all_accounts()) == 1,
+          "实际 %d" % len(account.all_accounts()))
+
+    # 非法车牌不能登记
+    r3 = account.register("abc", account.TEMPORARY)
+    check("非法车牌不能登记账户",
+          r3.get("ok") is False, r3.get("msg", ""))
+
+    # 改类型
+    r4 = account.change_kind("黑A12345", account.TEMPORARY)
+    check("账户类型可切换",
+          r4.get("ok") is True and r4["account"]["kind"] == account.TEMPORARY)
+
+    # 删除
+    r5 = account.remove("黑A12345")
+    check("账户可删除", r5.get("ok") is True)
+    check("删除后账户数为 0", len(account.all_accounts()) == 0)
+
+
+def test_classify():
+    """分流判断：查账户定月租/临停，没登记的按临停。"""
+    reset_data()
+    account.register("黑A11111", account.MONTHLY)
+    account.register("黑A22222", account.TEMPORARY)
+
+    kind, acc = account.classify("黑A11111")
+    check("月租账户分流为 monthly", kind == account.MONTHLY, kind)
+    check("月租账户能取到账户对象", acc is not None)
+
+    kind, _ = account.classify("黑A22222")
+    check("临停账户分流为 temporary", kind == account.TEMPORARY, kind)
+
+    kind, acc = account.classify("黑A99999")
+    check("未登记车牌按临停处理", kind == account.TEMPORARY, kind)
+    check("未登记车牌没有账户对象", acc is None)
+
+
+def test_entry_channel_split():
+    """★ 核心：入场按【车牌】分流，不是按车位。"""
+    reset_data()
+    account.register("黑A11111", account.MONTHLY, "月租车主")
+    account.register("黑A22222", account.TEMPORARY, "临停车主")
+
+    r1 = parking.handle_entry("黑A11111")
+    check("月租车入场成功", r1.get("ok") is True)
+    check("月租车走 monthly 通道",
+          r1.get("channel") == account.MONTHLY, str(r1.get("channel")))
+
+    r2 = parking.handle_entry("黑A22222")
+    check("临停车入场成功", r2.get("ok") is True)
+    check("临停车走 temp 通道",
+          r2.get("channel") == "temp", str(r2.get("channel")))
+
+    r3 = parking.handle_entry("黑A99999")
+    check("未登记车入场成功（不拒绝陌生人）", r3.get("ok") is True)
+    check("未登记车走 temp 通道", r3.get("channel") == "temp", str(r3.get("channel")))
+
+    # 车位上要记下通道
+    spots = store.read_all()
+    occupied = [s for s in spots if s.get("status") == "occupied"]
+    check("在场的车有 3 辆", len(occupied) == 3, "实际 %d" % len(occupied))
+    monthly_spots = [s for s in occupied if s.get("channel") == account.MONTHLY]
+    check("其中 1 辆是月租通道", len(monthly_spots) == 1, "实际 %d" % len(monthly_spots))
+
+
+def test_monthly_not_charged():
+    """★ 月租车出场费用必须为 0。"""
+    reset_data()
+    account.register("黑A11111", account.MONTHLY)
+
+    parking.handle_entry("黑A11111")
+    # 把入场时间往前挪 3 天，模拟长期停放
+    spots = store.read_all()
+    for s in spots:
+        if s.get("plate") == "黑A11111":
+            s["entryTime"] = store.now_ms() - 3 * 24 * 60 * 60 * 1000
+    store.write_all(spots)
+
+    e = parking.handle_exit("黑A11111")
+    check("月租车出场查到费用", e.get("ok") is True)
+    check("月租车停 3 天费用为 0 元", e.get("fee") == 0,
+          "实际 %d 元" % e.get("fee", -1))
+    check("月租车出场通道是 monthly",
+          e.get("channel") == account.MONTHLY, str(e.get("channel")))
+
+    p = parking.handle_pay("黑A11111")
+    check("月租车缴费成功", p.get("ok") is True)
+    check("月租车缴费金额为 0", p.get("fee") == 0)
+
+    # 车位要释放
+    still = [s for s in store.read_all() if s.get("status") == "occupied"]
+    check("月租车缴费后车位已释放", len(still) == 0, "仍占用 %d 个" % len(still))
+
+
+def test_temp_still_charged():
+    """★ 临停车照常计费，不能被月租逻辑误伤。"""
+    reset_data()
+    account.register("黑A22222", account.TEMPORARY)
+
+    parking.handle_entry("黑A22222")
+    spots = store.read_all()
+    for s in spots:
+        if s.get("plate") == "黑A22222":
+            s["entryTime"] = store.now_ms() - 2 * 60 * 60 * 1000
+    store.write_all(spots)
+
+    e = parking.handle_exit("黑A22222")
+    check("临停车停 2 小时费用为 10 元", e.get("fee") == 10,
+          "实际 %d 元" % e.get("fee", -1))
+    check("临停车通道是 temp", e.get("channel") == "temp", str(e.get("channel")))
+
+
+def test_account_kind_switch_affects_entry():
+    """账户类型改了，下次入场就要走新通道。"""
+    reset_data()
+    account.register("黑A11111", account.MONTHLY)
+
+    r1 = parking.handle_entry("黑A11111")
+    check("初始按月租入场", r1.get("channel") == account.MONTHLY)
+
+    parking.handle_pay("黑A11111")
+    account.change_kind("黑A11111", account.TEMPORARY)
+
+    r2 = parking.handle_entry("黑A11111")
+    check("改成临停后按临停入场", r2.get("channel") == "temp",
+          str(r2.get("channel")))
+
+
+def test_account_not_touched_by_payment():
+    """★ 账户不沾付款：缴费不会改账户，账户里也没有金额字段。"""
+    reset_data()
+    account.register("黑A11111", account.MONTHLY, "张三")
+    parking.handle_entry("黑A11111")
+    parking.handle_pay("黑A11111")
+
+    acc = account.find_by_plate("黑A11111")
+    check("缴费后账户还在", acc is not None)
+    check("账户没有余额字段", "balance" not in acc)
+    check("账户没有金额字段", "amount" not in acc and "fee" not in acc)
+    check("账户类型没被缴费改动", acc["kind"] == account.MONTHLY)
+
+
+# ============================================================
 # B. HTTP 端到端测试
 # ============================================================
 
@@ -262,7 +430,49 @@ def test_http():
         check("后台流水时间已格式化为可读时间",
               re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", text) is not None)
 
-        # 10. 404
+        # 10. 扫码页能打开
+        status, text = get("/scan")
+        check("GET /scan 200", status == 200, "status=%d" % status)
+        check("扫码页含取景框", "scan-view" in text)
+        check("扫码页含模拟扫描按钮", "模拟扫描" in text)
+
+        # 11. 模拟扫描 → 识别输入框
+        status, url, text = post("/scan/detect", {})
+        check("POST /scan/detect 进入识别状态",
+              status == 200 and "识别中" in text)
+
+        # 12. 扫码确认入场（未登记 → 临停通道）
+        status, url, text = post("/scan/confirm", {"plate": "黑A55555"})
+        check("扫码确认入场成功（未登记走临停）",
+              status == 200 and "ok=" in url, url)
+
+        # 13. 账户管理页能打开
+        status, text = get("/accounts")
+        check("GET /accounts 200", status == 200, "status=%d" % status)
+        check("账户页含新增表单", 'action="/accounts/add"' in text)
+
+        # 14. 登记账户 → 列表里能看到
+        status, url, text = post("/accounts/add",
+                                  {"plate": "黑A66666", "kind": "monthly",
+                                   "holder": "测试", "note": ""})
+        check("POST /accounts/add 登记成功",
+              status == 200 and "ok=" in url, url)
+        status, text = get("/accounts")
+        check("账户列表里能看到新账户", "黑A66666" in text)
+        check("账户列表显示月租标签", "kind-badge monthly" in text)
+
+        # 15. 切换账户类型
+        status, url, text = post("/accounts/toggle",
+                                  {"plate": "黑A66666", "kind": "temporary"})
+        check("POST /accounts/toggle 切换成功",
+              status == 200 and "ok=" in url, url)
+
+        # 16. 删除账户
+        status, url, text = post("/accounts/delete", {"plate": "黑A66666"})
+        check("POST /accounts/delete 删除成功",
+              status == 200 and "ok=" in url, url)
+
+        # 17. 404
         status, _ = get("/no-such-page")
         check("不存在的页面返回 404", status == 404, "status=%d" % status)
 
@@ -284,6 +494,13 @@ def main():
     test_duplicate_entry()
     test_full_flow()
     test_exit_unknown_car()
+    test_account_register()
+    test_classify()
+    test_entry_channel_split()
+    test_monthly_not_charged()
+    test_temp_still_charged()
+    test_account_kind_switch_affects_entry()
+    test_account_not_touched_by_payment()
 
     test_http()
 

@@ -14,6 +14,12 @@
     <p class="sub">车主端 · 输入车牌号入场</p>
   </header>
 
+  <div class="nav-links">
+    <a class="nav-link" href="{{ url_for('scan') }}">扫码入场</a>
+    <a class="nav-link" href="{{ url_for('accounts') }}">账户管理</a>
+    <a class="nav-link" href="{{ url_for('admin') }}">管理后台</a>
+  </div>
+
   {% if msg %}
   <div class="alert alert-err">{{ msg }}</div>
   {% endif %}
@@ -41,6 +47,9 @@
       <div class="cell {{ 'is-free' if s.status == 'free' else 'is-busy' }}">
         <span class="cell-id">{{ s.id }}</span>
         <span class="cell-plate">{{ s.plate if s.plate else '空闲' }}</span>
+        {% if s.channel %}
+        <span class="cell-channel {{ s.channel }}">{{ '月租' if s.channel == 'monthly' else '临停' }}</span>
+        {% endif %}
       </div>
       {% endfor %}
     </div>

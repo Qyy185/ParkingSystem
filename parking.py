@@ -2,13 +2,13 @@
 业务逻辑层
 ===========
 
-下面 6 个函数全部已实现并通过自检：
+核心函数：
 
 | 函数 | 职责 |
 |---|---|
 | `find_free_spot(spots)` | 车位分配：找第一个空闲车位 |
 | `calc_fee(entryTime)` | 分级计费：30 分钟免费 → 5 元/小时 → **每天**封顶 40 |
-| `handle_entry(plate)` | 入场：校验车牌 + 查重 + 分配车位 + 记时间戳 + 存盘 + 记流水 |
+| `handle_entry(plate)` | 入场：校验车牌 + 查重 + **按账户分流** + 分配车位 + 记流水 |
 | `handle_exit(plate)` | 出场计费：**只算钱，不放行** |
 | `handle_pay(plate)` | 缴费放行：释放车位 + 存盘 + 记流水 |
 | `find_in_field(plate)` | 查某车是否在场，返回在场车位 |
@@ -16,10 +16,13 @@
 设计要点：
 - 出场与缴费分成两步，为将来接支付接口留路径。
 - 车牌进业务层先归一化，保证「黑a 12345」和「黑A12345」是同一辆车。
+- **分流靠车牌，不靠车位**：入场时拿车牌查账户，账户标记这辆车是
+  月租还是临停。月租 → `channel = "monthly"`，不计费；其余 → `channel = "temp"`，正常计费。
 """
 
 import math
 
+import account
 import plate
 import store
 
@@ -38,6 +41,8 @@ def init_spots():
                 "status": "free",
                 "plate": None,
                 "entryTime": None,
+                # v0.2.1：记录这辆车走的哪条通道（monthly / temp）
+                "channel": None,
             })
     return spots
 
@@ -135,10 +140,17 @@ def calc_fee(entryTime):
 # ============================================================
 # ✅ 入场
 # 输入：plate 车牌字符串
-# 做的事：校验车牌 → 查重（车是否已在场）→ 分配车位 → 记入场时间
-#       → 写回数据 → 记一条流水
-# 返回：{"ok": True, "spot": 车位对象, "entryTime": 时间戳}
+# 做的事：校验车牌 → 查重（车是否已在场）→ **查账户分流**
+#       → 分配车位 → 记入场时间 → 写回数据 → 记一条流水
+# 返回：{"ok": True, "spot": 车位对象, "entryTime": 时间戳,
+#        "channel": "monthly"/"temp", "account": 账户或 None}
 #   或 {"ok": False, "msg": "车牌格式不正确…" / "这辆车已在场内，车位 A-01" / "车位已满"}
+#
+# ★ 分流逻辑（v0.2.1）：
+#   拿车牌去查账户 —— 账户上的类型标记决定这辆车走哪条通道。
+#   · 有月租账户 → channel = "monthly"，入场不计费
+#   · 有临停账户 → channel = "temp"，正常计费
+#   · 没登记账户 → channel = "temp"（陌生人开来就是临停，不能拒之门外）
 # ============================================================
 def handle_entry(plate_no):
     # ① 车牌格式校验
@@ -152,37 +164,48 @@ def handle_entry(plate_no):
         return {"ok": False,
                 "msg": f"这辆车已在场内，车位 {existing['id']}"}
 
-    # ③ 分配车位（spots 和上面查重用的是同一批对象）
+    # ③ 按车牌查账户分流（不是按车位）
+    kind, acc = account.classify(normalized)
+    channel = account.MONTHLY if kind == account.MONTHLY else "temp"
+
+    # ④ 分配车位（spots 和上面查重用的是同一批对象）
     spot = find_free_spot(spots)
     if spot is None:
         return {"ok": False, "msg": "车位已满"}
 
-    # ④ 改状态 + 记时间 + 存盘 + 记流水
+    # ⑤ 改状态 + 记时间 + 存盘 + 记流水
     spot["status"] = "occupied"
     spot["plate"] = normalized
     spot["entryTime"] = store.now_ms()
+    spot["channel"] = channel
     store.write_all(spots)
-    store.add_log({"type": "in", "plate": normalized, "spot": spot["id"]})
-    return {"ok": True, "spot": spot, "entryTime": spot["entryTime"]}
+    store.add_log({"type": "in", "plate": normalized, "spot": spot["id"],
+                   "channel": channel})
+    return {"ok": True, "spot": spot, "entryTime": spot["entryTime"],
+            "channel": channel, "account": acc}
 
 
 # ============================================================
 # ✅ 出场算钱（先不放行）
 # 输入：plate 车牌字符串
 # 做的事：找到这辆车 → 算钱 → 返回金额，但车位状态不变
-# 返回：{"ok": True, "fee": 金额, "minutes": 停了多久}
+# 返回：{"ok": True, "fee": 金额, "minutes": 停了多久, "channel": 通道}
 #   或 {"ok": False, "msg": "没找到这辆车"}
 #
 # ★ 关键：这里【不改】车位状态。先算钱，等车主确认缴费才放行。
+#
+# ★ 月租通道（v0.2.1）：这辆车入场时记的是 monthly 通道，费用恒为 0。
+#   月租是「已经付过月租费」，不是「不交钱」，所以这里不该再收一次。
 # ============================================================
 def handle_exit(plate_no):
     normalized = plate.normalize(plate_no)
     _, spot = find_in_field_with_spots(normalized)
     if spot is None:
         return {"ok": False, "msg": "没找到这辆车"}
-    fee = calc_fee(spot["entryTime"])
     minutes = (store.now_ms() - spot["entryTime"]) // 60000
-    return {"ok": True, "fee": fee, "minutes": minutes}
+    channel = spot.get("channel") or "temp"
+    fee = 0 if channel == account.MONTHLY else calc_fee(spot["entryTime"])
+    return {"ok": True, "fee": fee, "minutes": minutes, "channel": channel}
 
 
 # ============================================================
@@ -194,21 +217,26 @@ def handle_exit(plate_no):
 #
 # ★ 顺序陷阱：先算钱（用 entryTime），再清空。
 #   calc_fee 要用 entryTime 算钱，而后面会把 entryTime 设成 None。
+#
+# ★ 月租通道：费用为 0，但仍记一笔 pay 流水（金额 0），
+#   这样「出场」这件事在流水里留痕，后台统计能看出车确实开走了。
 # ============================================================
 def handle_pay(plate_no):
     normalized = plate.normalize(plate_no)
     spots, spot = find_in_field_with_spots(normalized)
     if spot is None:
         return {"ok": False, "msg": "没找到这辆车"}
-    fee = calc_fee(spot["entryTime"])
     minutes = (store.now_ms() - spot["entryTime"]) // 60000
+    channel = spot.get("channel") or "temp"
+    fee = 0 if channel == account.MONTHLY else calc_fee(spot["entryTime"])
     spot["status"] = "free"
     spot["plate"] = None
     spot["entryTime"] = None
+    spot["channel"] = None
     store.write_all(spots)
     store.add_log({"type": "pay", "plate": normalized, "spot": spot["id"],
-                   "minutes": minutes, "fee": fee})
-    return {"ok": True}
+                   "minutes": minutes, "fee": fee, "channel": channel})
+    return {"ok": True, "fee": fee, "channel": channel}
 
 
 
