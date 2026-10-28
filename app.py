@@ -49,6 +49,44 @@ PORT = int(os.environ.get("PORT", "3000"))
 # 访问口令：不设就是完全公开。面试演示时设上，防止被人刷数据。
 ACCESS_PWD = os.environ.get("ACCESS_PWD", "").strip()
 
+# ★ 管理员口令（v0.4.2）：车主端和管理后台分成两套权限。
+#   ACCESS_PWD  → 车主端（入场、出场、给自己充值）
+#   ADMIN_PWD   → 管理后台（看营收、改账户、发催缴）
+#
+#   为什么必须分开：原来只有一个口令，进了系统就能进 /admin 改所有数据。
+#   公网上只要口令泄露（或者被人瞄到），整个后台就门户大开。
+#   现在车主口令和管理员口令互不相通，车主进不去后台。
+#
+#   ★ 管理员口令不能为空 —— 宁可让后台进不去，也不能让后台没有保护。
+#     没配 ADMIN_PWD 时，管理端直接关闭（访问会跳回并提示未授权）。
+ADMIN_PWD = os.environ.get("ADMIN_PWD", "").strip()
+
+# 角色常量
+ROLE_OWNER = "owner"   # 车主
+ROLE_ADMIN = "admin"   # 管理员
+
+# ★ 管理端页面清单 —— 这些路径必须是管理员身份才能进。
+#
+#   注意：/accounts 和 /remind 也是管理端！
+#   账户管理能改别人的会员、催缴能给任何人发消息，
+#   它们和 /admin 是同一类东西，不能漏在外面。
+ADMIN_PATHS = (
+    "/admin",
+    "/accounts",
+    "/remind",
+)
+
+
+def is_admin_path(path):
+    """判断这个路径是不是管理端。
+
+    用前缀匹配：/admin、/accounts/add、/remind/send/one 都要拦住。
+    """
+    for p in ADMIN_PATHS:
+        if path == p or path.startswith(p + "/"):
+            return True
+    return False
+
 
 def fmt_time(ts):
     """毫秒时间戳 → '2026-10-26 13:45:53'。
@@ -117,50 +155,128 @@ def lan_ip():
 
 
 # ----------------------------------------------------------
-#  访问口令（v0.4）
+#  访问口令（v0.4 → v0.4.2 拆成两套）
 # ----------------------------------------------------------
 # 公网部署后，任何拿到链接的人都能进后台乱改数据。
 # 设一个口令，进页面先要输入，验证过就记在 session 里。
 #
-# 不设 ACCESS_PWD = 完全公开，本地开发不受影响。
+# ★ v0.4.2：车主端和管理后台分成两个网页、两套口令。
+#   · 车主口令 ACCESS_PWD  → 车主端（入场、出场、给自己充值）
+#   · 管理员口令 ADMIN_PWD  → 管理后台（营收、账户管理、催缴）
+#   两套口令互不相通，车主拿到车主口令也进不了后台。
+#
+# 不设 ACCESS_PWD = 车主端完全公开，本地开发不受影响。
+#   但 ADMIN_PWD 不设的话，管理端是**关闭**的（不是公开）——
+#   没保护的后台比没有后台更危险。
 
 @app.before_request
 def check_access_password():
-    """每个请求前检查访问口令。
+    """每个请求前检查身份。
 
     放行的情况：
-      · 没设口令（ACCESS_PWD 为空）→ 完全公开
-      · 已经验证过（session 里有标记）→ 放行
-      · 正在访问口令页或提交口令 → 放行
       · 静态资源 → 放行（否则页面样式都加载不出来）
+      · 口令页本身 → 放行（不然死循环）
+      · 访问的是管理端，但当前身份是管理员 → 放行
+      · 访问的是管理端，但当前身份是车主 → 拦下，提示权限不足
+      · 没设车主口令（本地开发）→ 放行
+      · 已经用车主口令验证过 → 放行
     """
-    if not ACCESS_PWD:
+    # 静态资源永远放行
+    if request.path.startswith("/static/"):
         return None
-    if session.get("access_ok"):
-        return None
+
     # 口令页本身不能拦，否则死循环
     if request.path == "/access":
         return None
-    if request.path.startswith("/static/"):
+
+    role = session.get("role")
+
+    # ★ 管理端：必须是管理员
+    if is_admin_path(request.path):
+        if role == ROLE_ADMIN:
+            return None
+        if not ADMIN_PWD:
+            # 没配管理员口令 → 管理端是关闭的，不是公开的
+            return redirect(url_for("access_page",
+                                    role=ROLE_ADMIN,
+                                    err="管理后台未配置管理员口令，已关闭"))
+        if role == ROLE_OWNER:
+            # 已经以车主身份登录了，明确告诉他「你没权限」
+            return redirect(url_for("access_page",
+                                    role=ROLE_ADMIN,
+                                    err="权限不足：管理后台需要管理员口令"))
+        return redirect(url_for("access_page", role=ROLE_ADMIN))
+
+    # ★ 车主端
+    if not ACCESS_PWD:
         return None
-    return redirect(url_for("access_page"))
+    if role in (ROLE_OWNER, ROLE_ADMIN):
+        return None
+    return redirect(url_for("access_page", role=ROLE_OWNER))
 
 
 @app.route("/access", methods=["GET", "POST"])
 def access_page():
-    """口令输入页。"""
-    if not ACCESS_PWD:
+    """口令输入页。
+
+    ★ v0.4.2：支持两种身份，用 `role` 参数区分。
+      · role=owner  → 车主端（默认）
+      · role=admin  → 管理后台
+
+    管理员口令通过后，管理员能进管理端，也能进车主端
+    （管理员自己也得停车）。
+    """
+    # 没设车主口令就不用输口令；没设管理员口令则管理端关闭
+    if not ACCESS_PWD and not ADMIN_PWD:
         return redirect(url_for("index"))
 
-    error = ""
+    role = request.args.get("role") or request.form.get("role") or ROLE_OWNER
+    if role not in (ROLE_OWNER, ROLE_ADMIN):
+        role = ROLE_OWNER
+
+    error = request.args.get("err", "")
+
     if request.method == "POST":
         given = (request.form.get("pwd") or "").strip()
-        if given == ACCESS_PWD:
-            session["access_ok"] = True
-            return redirect(request.args.get("next") or url_for("index"))
-        error = "口令不对"
 
-    return render_template("access.html", error=error)
+        if role == ROLE_ADMIN:
+            if not ADMIN_PWD:
+                error = "管理后台未配置管理员口令，已关闭"
+            elif given == ADMIN_PWD:
+                session["role"] = ROLE_ADMIN
+                session["access_ok"] = True
+                nxt = request.args.get("next")
+                return redirect(nxt if nxt and nxt.startswith("/") else url_for("admin"))
+            else:
+                error = "管理员口令不对"
+        else:
+            if not ACCESS_PWD:
+                # 没设车主口令 = 本地开发，直接进
+                session["role"] = ROLE_OWNER
+                session["access_ok"] = True
+                return redirect(url_for("index"))
+            if given == ACCESS_PWD:
+                session["role"] = ROLE_OWNER
+                session["access_ok"] = True
+                nxt = request.args.get("next")
+                return redirect(nxt if nxt and nxt.startswith("/") else url_for("index"))
+            else:
+                error = "访问口令不对"
+
+    return render_template(
+        "access.html",
+        error=error,
+        role=role,
+        has_owner_pwd=bool(ACCESS_PWD),
+        has_admin_pwd=bool(ADMIN_PWD),
+    )
+
+
+@app.route("/logout")
+def logout():
+    """退出登录，回到口令页。"""
+    session.clear()
+    return redirect(url_for("access_page", role=ROLE_OWNER))
 
 
 # ----------------------------------------------------------
@@ -171,16 +287,23 @@ def index():
     """车主端：看车位、入场、出场算钱、缴费。"""
     spots = parking.get_spots()
     free_count = sum(1 for s in spots if s["status"] == "free")
+    occupied_count = len(spots) - free_count
+    total = len(spots) or 1
     # 提示信息放在 URL 查询参数里，模板直接用 request.args 取。
     # （不要用 error / status 这种名字，Jinja2 和 Flask 内部有冲突）
+    from flask import session
     return render_template(
         "index.html",
         spots=spots,
         free_count=free_count,
+        occupied_count=occupied_count,
+        used_percent=round(occupied_count * 100.0 / total, 1),
+        free_percent=round(free_count * 100.0 / total, 1),
         msg=request.args.get("msg", ""),
         ok_msg=request.args.get("ok", ""),
         fee=request.args.get("fee", ""),
         minutes=request.args.get("minutes", ""),
+        fee_plate=session.get("pending_plate", "") or "",
         lan_ip=lan_ip(),
         port=PORT,
     )
@@ -192,11 +315,16 @@ def admin():
     spots = parking.get_spots()
     logs = store.read_logs()
     free_count = sum(1 for s in spots if s["status"] == "free")
+    occupied_count = len(spots) - free_count
+    total = len(spots) or 1
     return render_template(
         "admin.html",
         spots=spots,
         logs=list(reversed(logs)),
         free_count=free_count,
+        occupied_count=occupied_count,
+        used_percent=round(occupied_count * 100.0 / total, 1),
+        free_percent=round(free_count * 100.0 / total, 1),
         revenue=store.today_revenue(),
     )
 
@@ -228,12 +356,16 @@ def entry():
     else:
         tail = "（临停，按小时计费）"
     return redirect(url_for(
-        "index", ok_msg=f"入场成功，车位 {spot['id']}（{spot['zone']}）{tail}"))
+        "index", ok_msg=f"入场成功，车位 {spot['id']} {tail}"))
 
 
 @app.route("/exit", methods=["POST"])
 def exit():
-    """出场：先算钱，不放行车位。"""
+    """出场：先算钱，不放行车位。
+
+    ★ v0.4.2：算完钱**不直接放行**，跳到模拟支付确认页。
+      车主在确认页看清楚金额、选支付方式、点「确认支付」才真正出场。
+    """
     raw = (request.form.get("plate") or "").strip()
     if not raw:
         return redirect(url_for("index", msg="车牌号不能为空"))
@@ -245,12 +377,21 @@ def exit():
     # 把待缴费信息带到下一步。用 session 存比用 URL 参数安全。
     from flask import session
     session["pending_plate"] = plate.normalize(raw)
-    return redirect(url_for("index", fee=result["fee"], minutes=result["minutes"]))
+    session["pending_fee"] = result["fee"]
+    session["pending_minutes"] = result["minutes"]
+    session["pending_channel"] = result.get("channel", "temp")
+    # ★ 跳模拟支付页，而不是直接缴费
+    return redirect(url_for("pay_confirm", kind="parking"))
 
 
 @app.route("/pay", methods=["POST"])
 def pay():
-    """缴费：确认收款，释放车位。"""
+    """缴费：确认收款，释放车位。
+
+    ★ v0.4.2：这个路由现在是**从模拟支付页点「确认支付」后**调用的，
+      不再是车主端那个「确认缴费」按钮的直接目标。
+      （车主端现在只展示费用，缴费必须经过 /pay/confirm 确认页）
+    """
     from flask import session
     pending = (session.pop("pending_plate", "") or "").strip()
     if not pending:
@@ -264,6 +405,132 @@ def pay():
     if result.get("channel") == "member":
         return redirect(url_for("index", ok_msg="会员车辆出场，车位已释放（本次费用 0 元）"))
     return redirect(url_for("index", ok_msg="缴费成功，车位已释放"))
+
+
+# ----------------------------------------------------------
+#  模拟支付确认页（v0.4.2）
+# ----------------------------------------------------------
+# 为什么要加这一层：
+#   原来充值和缴费都是「点一下按钮就直接扣款/放行」，
+#   真实场景里不可能这样 —— 支付前得有确认页，
+#   让用户看清金额、选支付方式、确认后才生效。
+#   这一层也是接真支付接口（微信/支付宝）时唯一要改的地方。
+#
+# 两种业务共用这一个页面：
+#   kind=recharge  会员充值（车牌 + 套餐 + 金额）
+#   kind=parking   停车缴费（车牌 + 停放时长 + 金额）
+#
+# ★ 关键设计：金额**不接受前端传参**。
+#   确认页展示的金额是后端算好的，存在 session 里；
+#   提交时后端重新算一遍，对不上就报错。
+#   否则改一下表单里的 amount 就能 1 元充 1000 元。
+
+# 模拟的支付方式（真接支付时换成实际渠道）
+PAY_METHODS = [
+    {"id": "wechat", "name": "微信支付", "tag": "模拟"},
+    {"id": "alipay", "name": "支付宝", "tag": "模拟"},
+    {"id": "cash", "name": "现金", "tag": "线下"},
+]
+
+
+@app.route("/pay/confirm", methods=["GET", "POST"])
+def pay_confirm():
+    """模拟收银台：确认金额 + 选支付方式 + 确认支付。
+
+    GET  → 显示确认页
+    POST → 校验金额 → 执行（充值或缴费）→ 跳回结果页
+    """
+    from flask import session
+
+    kind = request.values.get("kind") or ""
+    if kind not in ("recharge", "parking"):
+        return redirect(url_for("index", msg="支付类型不对"))
+
+    method = request.values.get("method") or "wechat"
+
+    # ---------------------------------------------------------
+    #  取待支付的信息
+    # ---------------------------------------------------------
+    if kind == "recharge":
+        plate_no = (session.get("pay_plate") or "").strip()
+        pkg_kind = session.get("pay_kind") or ""
+        periods = int(session.get("pay_periods") or 0)
+        option = account.get_option(pkg_kind, periods) if pkg_kind else None
+        if not plate_no or option is None:
+            return redirect(url_for("recharge", msg="支付信息已失效，请重新选择套餐"))
+        amount = option["price"]
+        title = "会员充值"
+        subtitle = option["label"]
+    else:
+        plate_no = (session.get("pending_plate") or "").strip()
+        amount = session.get("pending_fee")
+        minutes = session.get("pending_minutes")
+        channel = session.get("pending_channel") or "temp"
+        if not plate_no or amount is None:
+            return redirect(url_for("index", msg="没有待缴费的车辆，请重新查询"))
+        title = "停车缴费"
+        subtitle = "停放 %s 分钟" % fmt_duration(minutes) if minutes is not None else ""
+        if channel == "member":
+            subtitle += " · 会员车辆本次费用 0 元"
+
+    # ---------------------------------------------------------
+    #  POST：真正执行
+    # ---------------------------------------------------------
+    if request.method == "POST":
+        if kind == "recharge":
+            # ★ 后端重算金额，不信前端传的
+            real_option = account.get_option(pkg_kind, periods)
+            if real_option is None or real_option["price"] != amount:
+                return redirect(url_for("recharge", plate=plate_no, kind=pkg_kind,
+                                        msg="支付信息已失效，请重新选择套餐"))
+            result = account.recharge(plate_no, pkg_kind, periods)
+            if not result.get("ok"):
+                return redirect(url_for("recharge", plate=plate_no, kind=pkg_kind,
+                                        msg=result.get("msg", "充值失败")))
+            # 清掉待支付信息
+            for k in ("pay_plate", "pay_kind", "pay_periods"):
+                session.pop(k, None)
+            acc = result["account"]
+            method_name = next((m["name"] for m in PAY_METHODS if m["id"] == method), "模拟支付")
+            return redirect(url_for(
+                "recharge", plate=plate_no, kind=pkg_kind,
+                ok=f"充值成功 {result['amount']} 元（{method_name}），"
+                   f"余额 {acc['balance']} 元，有效期至 {fmt_date(result['expiresAt'])}"))
+
+        else:
+            # 停车缴费：后端重算费用（停久了会变，但这里取的是同一笔）
+            pending = (session.pop("pending_plate", "") or "").strip()
+            if not pending:
+                return redirect(url_for("index", msg="没有待缴费的车辆"))
+            spots, spot = parking.find_in_field_with_spots(pending)
+            if spot is None:
+                return redirect(url_for("index", msg="这辆车已经出场了"))
+            real_fee = 0 if (spot.get("channel") or "temp") == "member" else parking.calc_fee(spot["entryTime"])
+            if real_fee != amount:
+                return redirect(url_for("index", msg="费用已变化，请重新查询"))
+            result = parking.handle_pay(pending)
+            if not result.get("ok"):
+                return redirect(url_for("index", msg=result.get("msg", "缴费失败")))
+            for k in ("pending_fee", "pending_minutes", "pending_channel"):
+                session.pop(k, None)
+            method_name = next((m["name"] for m in PAY_METHODS if m["id"] == method), "模拟支付")
+            if result.get("channel") == "member":
+                return redirect(url_for("index", ok_msg="会员车辆出场，车位已释放（本次费用 0 元）"))
+            return redirect(url_for("index", ok_msg=f"缴费成功 {result['fee']} 元（{method_name}），车位已释放"))
+
+    # ---------------------------------------------------------
+    #  GET：显示确认页
+    # ---------------------------------------------------------
+    return render_template(
+        "pay_confirm.html",
+        kind=kind,
+        title=title,
+        subtitle=subtitle,
+        plate=plate_no,
+        amount=amount,
+        methods=PAY_METHODS,
+        method=method,
+    )
 
 
 # ----------------------------------------------------------
@@ -334,9 +601,9 @@ def scan_confirm():
     spot = result["spot"]
     channel = result.get("channel")
     if channel == "member":
-        tip = f"{account.kind_label(kind)}入场，车位 {spot['id']}（{spot['zone']}），本次不计停车费"
+        tip = f"{account.kind_label(kind)}入场，车位 {spot['id']}，本次不计停车费"
     else:
-        tip = f"临停车入场，车位 {spot['id']}（{spot['zone']}）"
+        tip = f"临停车入场，车位 {spot['id']}"
     return redirect(url_for("scan", plate=plate.normalize(raw),
                             kind=channel, label=label, ok=tip))
 
@@ -491,39 +758,37 @@ def recharge_select():
     }
     current = account.find_by_plate(plate_no)
 
-    return render_template(
-        "recharge.html",
-        packages=account.PACKAGES,
-        plate=plate_no,
-        kind=kind,
-        current=current,
-        selected=selected,
-        account_plate=plate.normalize(plate_no),
-        msg="",
-        ok_msg="",
-    )
+    # ★ v0.4.2：不再直接扣款，改为跳模拟支付确认页。
+    #   待支付信息放 session，确认页再取。
+    from flask import session
+    session["pay_plate"] = plate.normalize(plate_no)
+    session["pay_kind"] = kind
+    session["pay_periods"] = periods
+
+    return redirect(url_for("pay_confirm", kind="recharge"))
 
 
 @app.route("/recharge/do", methods=["POST"])
 def recharge_do():
-    """确认充值。"""
+    """确认充值 —— ★ v0.4.2 已停用，这个路由现在只是个跳板。
+
+    原来这里直接调 `account.recharge()` 扣款。
+    加了模拟支付确认页之后，扣款应该发生在
+    「确认页 → 点确认支付」那一步（/pay/confirm?kind=recharge）。
+
+    ★ 为什么不能直接删掉这个路由：
+    删了的话，浏览器里存的旧书签 / 旧页面表单 POST 过来会 404，
+    用户看到的是「服务器错误」而不是「请重新操作」。
+    留一个跳转 + 友好提示更稳妥。
+
+    ★ 而且它现在**不能扣款**了 —— 只是把人引回充值页重新走流程。
+    这很重要：不然它就是个绕过确认页的后门。
+    """
     plate_no = (request.form.get("plate") or "").strip()
     kind = request.form.get("kind") or ""
-    try:
-        periods = int(request.form.get("periods") or 0)
-    except ValueError:
-        periods = 0
-
-    result = account.recharge(plate_no, kind, periods)
-    if not result.get("ok"):
-        return redirect(url_for("recharge", plate=plate_no, kind=kind,
-                                msg=result.get("msg", "充值失败")))
-
-    acc = result["account"]
     return redirect(url_for(
         "recharge", plate=plate_no, kind=kind,
-        ok=f"充值成功 {result['amount']} 元，余额 {acc['balance']} 元，"
-           f"有效期至 {fmt_date(result['expiresAt'])}"))
+        msg="请在支付确认页完成充值（直接提交不会扣款）"))
 
 
 # ----------------------------------------------------------

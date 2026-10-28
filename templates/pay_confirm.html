@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>地下停车场 · 确认支付</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <h1>确认支付</h1>
+    <p class="sub">{{ title }} · 请核对金额后确认</p>
+  </header>
+
+  <div class="nav-links">
+    <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
+    <a class="nav-link" href="{{ url_for('recharge') }}">充值</a>
+    <a class="nav-link" href="{{ url_for('scan') }}">扫码入场</a>
+  </div>
+
+  <section class="card">
+    <div class="pay-box">
+      <div class="balance-label">{{ title }}</div>
+      <div class="pay-amount">{{ amount }} <small>元</small></div>
+      <div class="pay-meta">
+        车牌号 <strong>{{ plate }}</strong><br>
+        {% if subtitle %}{{ subtitle }}<br>{% endif %}
+        支付后立即生效
+      </div>
+    </div>
+
+    <div class="pay-notice">
+      这是<strong>模拟收银台</strong>，不会真的扣钱。
+      目的是走通「看清金额 → 选支付方式 → 确认」这一步 ——
+      将来接微信/支付宝真实支付，只改后端的支付渠道，页面不用动。
+    </div>
+
+    <form method="post" action="{{ url_for('pay_confirm', kind=kind) }}">
+      <h2>选择支付方式</h2>
+      <div class="pay-methods">
+        {% for m in methods %}
+        <label class="pay-method">
+          <input type="radio" name="method" value="{{ m.id }}"
+                 {% if m.id == method %}checked{% endif %}>
+          <span class="pay-method-name">{{ m.name }}</span>
+          <span class="pay-method-tag">{{ m.tag }}</span>
+        </label>
+        {% endfor %}
+      </div>
+
+      <div class="row">
+        <button class="btn primary grow" type="submit">确认支付 {{ amount }} 元</button>
+      </div>
+    </form>
+
+    <div class="row">
+      <a class="btn" href="{{ url_for('index') }}" style="width: 100%;">取消，返回</a>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <a href="{{ url_for('index') }}">← 返回车主端</a>
+    ·
+    <a href="{{ url_for('recharge') }}">充值</a>
+  </footer>
+</div>
+</body>
+</html>

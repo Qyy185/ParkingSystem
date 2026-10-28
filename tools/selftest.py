@@ -17,12 +17,14 @@ import subprocess
 import sys
 import tempfile
 import time
+import http.cookiejar
 import urllib.error
 import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORT = 3000
+ADMIN_PWD = "admin12345"   # 管理端口令（测试用）
 PY = os.path.join(ROOT, ".venv", "Scripts", "python.exe")
 if not os.path.exists(PY):
     PY = sys.executable
@@ -1084,11 +1086,37 @@ def test_deploy_config():
 # B. HTTP 端到端测试
 # ============================================================
 
+# ★ v0.4.2：管理端页面要管理员身份，测试请求必须带 session cookie。
+#   不带的话 /accounts、/remind 全被 302 拦到口令页，后面几十条断言全挂。
+#   做法：起一个 CookieJar，用管理员口令登录一次，之后所有请求都带上它。
+COOKIE_JAR = http.cookiejar.CookieJar()
+_OPENER = urllib.request.build_opener(
+    urllib.request.HTTPCookieProcessor(COOKIE_JAR)
+)
+
+
+def login_admin():
+    """用管理员口令登录，把 session cookie 存进 COOKIE_JAR。"""
+    body = urllib.parse.urlencode(
+        {"pwd": ADMIN_PWD, "role": "admin"}
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        "http://127.0.0.1:%d/access?role=admin" % PORT,
+        data=body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        _OPENER.open(req, timeout=10).read()
+    except urllib.error.HTTPError:
+        pass
+    return len(COOKIE_JAR) > 0
+
+
 def get(path):
     """GET 一个页面，返回 (状态码, 文本)。"""
     req = urllib.request.Request("http://127.0.0.1:%d%s" % (PORT, path))
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _OPENER.open(req, timeout=10) as resp:
             return resp.status, resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode("utf-8")
@@ -1110,7 +1138,7 @@ def post(path, data):
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _OPENER.open(req, timeout=10) as resp:
             return resp.status, resp.geturl(), resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         return e.code, e.geturl(), e.read().decode("utf-8")
@@ -1124,19 +1152,31 @@ def test_http():
     #   请求数一多（v0.3 加了手机适配检查后有 200+ 个请求）必然踩到这个坑。
     log_path = os.path.join(tempfile.gettempdir(), "parking_selftest_server.log")
     log_file = open(log_path, "w", encoding="utf-8")
+    # ★ v0.4.2：给服务器注入管理员口令，
+    #   否则管理端页面（/accounts、/remind）全是 302，测试没法跑。
+    env = dict(os.environ)
+    env["ADMIN_PWD"] = ADMIN_PWD
     proc = subprocess.Popen(
         [PY, os.path.join(ROOT, "app.py")],
-        cwd=ROOT, stdout=log_file, stderr=subprocess.STDOUT,
+        cwd=ROOT, stdout=log_file, stderr=subprocess.STDOUT, env=env,
     )
     time.sleep(2.5)
 
     try:
+        # ★ 先用管理员口令登录，后面所有请求都带这个 session
+        check("能用管理员口令登录", login_admin())
+
         # 1. 车主端页面
         status, text = get("/")
         check("GET / 200", status == 200, "status=%d" % status)
         check("车主端含标题", "地下停车场" in text)
+        # ★ v0.4.2：车位不再逐个渲染格子（64 个格子太长），
+        #   改成只显示总车位 / 空闲 / 已占用 三个统计数字。
         cells = re.findall(r'class="cell ', text)
-        check("渲染出 16 个车位", len(cells) == 16, "实际 %d" % len(cells))
+        check("★ 不再逐个渲染车位格子", len(cells) == 0, "实际 %d" % len(cells))
+        check("★ 显示总车位 64", ">64<" in text)
+        check("★ 显示空闲统计", "空闲" in text)
+        check("★ 显示已占用统计", "已占用" in text)
         check("含入场表单", 'action="/entry"' in text)
         check("含出场表单", 'action="/exit"' in text)
 
@@ -1248,19 +1288,38 @@ def test_http():
         check("第二步含各档位", "1 个月" in text and "12 个月" in text)
 
         # 21. 提交档位 → 显示确认页
+        # ★ v0.4.2：选完档位不再直接扣款，跳模拟支付确认页
         status, url, text = post("/recharge/select",
                                   {"plate": "黑A77777", "kind": "monthly",
                                    "periods": "3"})
-        check("提交档位后显示确认页", "本次充值" in text)
-        check("确认页显示 850 元", "850" in text)
-        check("确认页有确认充值按钮", "确认充值" in text)
+        check("★ 提交档位后跳到模拟支付页", "/pay/confirm" in url, url)
+        check("★ 确认页显示 850 元", "850" in text)
+        check("★ 确认页有「确认支付」按钮", "确认支付" in text)
+        check("★ 确认页有支付方式选择", "微信支付" in text)
 
-        # 22. 确认充值
+        # 22. 确认充值（★ v0.4.2：走模拟支付确认页）
+        #     注意：不能直接打 /recharge/do —— 新流程里扣款发生在
+        #     确认页点「确认支付」时。直接打 /recharge/do 反而是
+        #     一个**后门**（绕过确认页直接扣款），得把它堵掉。
+        status, url, text = post("/pay/confirm?kind=recharge",
+                                  {"kind": "recharge", "method": "wechat"})
+        check("★ 模拟支付页确认充值成功",
+              status == 200 and "ok=" in url, url)
+        check("★ 充值成功提示含支付方式", "微信支付" in urllib.parse.unquote(url),
+              urllib.parse.unquote(url)[:150])
+
+        # 21.5 后门检查：直接打 /recharge/do 不能扣款
+        #   （v0.4.2 加确认页后，这个旧路由必须堵住，
+        #     否则可以绕过确认页直接充值）
+        before = account.find_by_plate("黑A77777")
+        bal_before = before.get("balance") if before else 0
         status, url, text = post("/recharge/do",
                                   {"plate": "黑A77777", "kind": "monthly",
                                    "periods": "3"})
-        check("POST /recharge/do 充值成功",
-              status == 200 and "ok=" in url, url)
+        after = account.find_by_plate("黑A77777")
+        bal_after = after.get("balance") if after else 0
+        check("★ /recharge/do 不能绕过确认页扣款", bal_after == bal_before,
+              "余额 %s → %s" % (bal_before, bal_after))
 
         # 23. 账户管理页能看到余额
         status, text = get("/accounts")

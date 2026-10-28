@@ -8,25 +8,51 @@
 </head>
 <body>
 <div class="wrap">
+
   <section class="card access-card">
     <div class="access-lock">🔒</div>
     <h1 class="access-title">地下停车场系统</h1>
-    <p class="access-sub">该系统部署在公网，请输入访问口令</p>
+
+    {% if role == 'admin' %}
+    <p class="access-sub">管理后台 · 请输入管理员口令</p>
+    {% else %}
+    <p class="access-sub">车主端 · 请输入访问口令</p>
+    {% endif %}
 
     {% if error %}
     <div class="alert alert-err">{{ error }}</div>
     {% endif %}
 
-    <form method="post" action="{{ url_for('access_page') }}">
+    <form method="post" action="{{ url_for('access_page', role=role) }}">
+      <input type="hidden" name="role" value="{{ role }}">
       <div class="row" style="margin-bottom: 12px;">
-        <input class="input" type="password" name="pwd" placeholder="访问口令"
+        <input class="input" type="password" name="pwd"
+               placeholder="{{ '管理员口令' if role == 'admin' else '访问口令' }}"
                autocomplete="current-password" required autofocus>
       </div>
-      <button class="btn primary" type="submit" style="width: 100%;">进入系统</button>
+      <button class="btn primary" type="submit" style="width: 100%;">
+        {% if role == 'admin' %}进入管理后台{% else %}进入车主端{% endif %}
+      </button>
     </form>
 
+    <div class="access-switch">
+      {% if role == 'admin' %}
+      <a href="{{ url_for('access_page', role='owner') }}">← 我是车主，去车主端</a>
+      {% else %}
+      {% if has_admin_pwd %}
+      <a href="{{ url_for('access_page', role='admin') }}">我是管理员，去管理后台 →</a>
+      {% else %}
+      <span class="tip">管理后台未启用</span>
+      {% endif %}
+      {% endif %}
+    </div>
+
     <p class="tip">
-      口令由部署方通过环境变量 <code>ACCESS_PWD</code> 设置。
+      {% if role == 'admin' %}
+      管理员口令由部署方通过环境变量 <code>ADMIN_PWD</code> 设置。
+      {% else %}
+      车主端口令由部署方通过环境变量 <code>ACCESS_PWD</code> 设置。
+      {% endif %}
     </p>
   </section>
 </div>

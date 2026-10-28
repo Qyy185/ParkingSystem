@@ -41,7 +41,6 @@ Page({
                 result: {
                     plate: store.normalizePlate(plate),
                     spot: result.data.spot.id,
-                    zone: result.data.spot.zone,
                     channelText: result.data.channel === 'member' ? '会员（不计停车费）' : '临停（按小时计费）',
                     isMember: result.data.channel === 'member',
                     message: result.data.message,

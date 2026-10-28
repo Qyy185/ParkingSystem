@@ -87,19 +87,17 @@ function isValidPlate(value) {
 //  车位
 // ---------------------------------------------------------
 function initSpots() {
+    // v0.4.2：64 个车位，取消分区（后端同步改动）
     const spots = [];
-    ['A', 'B'].forEach(letter => {
-        for (let i = 1; i <= 8; i += 1) {
-            spots.push({
-                id: letter + '-' + String(i).padStart(2, '0'),
-                zone: letter + '区',
-                status: 'free',
-                plate: null,
-                entryTime: null,
-                channel: null,
-            });
-        }
-    });
+    for (let i = 1; i <= 64; i += 1) {
+        spots.push({
+            id: 'P-' + String(i).padStart(2, '0'),
+            status: 'free',
+            plate: null,
+            entryTime: null,
+            channel: null,
+        });
+    }
     return spots;
 }
 
@@ -316,8 +314,8 @@ function entry(plateNo) {
                 channel: channel,
                 kind: info.kind,
                 message: channel === 'member'
-                    ? '入场成功，车位 ' + target.id + '（' + target.zone + '），会员不计停车费'
-                    : '入场成功，车位 ' + target.id + '（' + target.zone + '）',
+                    ? '入场成功，车位 ' + target.id + '，会员不计停车费'
+                    : '入场成功，车位 ' + target.id,
             },
             error: null,
         };

@@ -95,6 +95,7 @@ def parse(text):
     """
     url = ""
     pwd = ""
+    admin_pwd = ""
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or ":" not in line:
@@ -108,7 +109,9 @@ def parse(text):
             url = val
         elif not pwd and key in ("访问口令", "口令"):
             pwd = val
-    return url, pwd
+        elif not admin_pwd and key in ("管理员口令", "管理口令"):
+            admin_pwd = val
+    return url, pwd, admin_pwd
 
 
 def main():
@@ -123,18 +126,22 @@ def main():
         print("可能是网络问题，稍后重试。", file=sys.stderr)
         return 1
 
-    url, pwd = parse(text)
+    url, pwd, admin_pwd = parse(text)
     if not url:
         print("取到文件了但没解析出地址，内容如下：", file=sys.stderr)
         print(text, file=sys.stderr)
         return 1
 
     if args.json:
-        print(json.dumps({"url": url, "password": pwd, "channel": channel}, ensure_ascii=False))
+        print(json.dumps({"url": url, "password": pwd,
+                          "admin_password": admin_pwd, "channel": channel},
+                         ensure_ascii=False))
         return 0
 
     print("公网地址: %s" % url)
     print("访问口令: %s" % pwd)
+    if admin_pwd:
+        print("管理员口令: %s" % admin_pwd)
     if channel != "raw":
         print("(经由 %s 通道取得)" % channel)
 

@@ -99,6 +99,7 @@ def main():
     url = os.environ.get("TARGET_URL", "").strip()
     pwd = os.environ.get("TARGET_PWD", "").strip()
     source = os.environ.get("PWD_SOURCE", "").strip()
+    admin_pwd = os.environ.get("TARGET_ADMIN_PWD", "").strip()
 
     if not token:
         print("⚠️ 没有 GH_TOKEN，跳过同步")
@@ -136,6 +137,13 @@ def main():
         ]
     else:
         info_lines += ["访问口令: （未设置，当前完全公开）"]
+
+    if admin_pwd:
+        info_lines += [
+            "",
+            "管理后台: /admin",
+            "管理员口令: %s" % admin_pwd,
+        ]
     info_lines += [
         "",
         "注: 这是临时地址，本次 Actions 运行结束后失效。",

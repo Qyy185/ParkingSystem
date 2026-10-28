@@ -463,6 +463,133 @@ body {
   font-size: 12px;
 }
 
+/* ---- 身份切换（v0.4.2：车主端 / 管理后台 两个入口）---- */
+.access-switch {
+  margin: 16px 0 4px;
+  padding-top: 16px;
+  border-top: 1px solid #e8eaec;
+  font-size: 14px;
+}
+.access-switch a {
+  color: #185fa5;
+  text-decoration: none;
+  display: inline-block;
+  padding: 8px 0;
+}
+.access-switch a:active { opacity: 0.6; }
+.access-switch .tip { color: #8a9099; font-size: 13px; }
+
+/* ---- 身份徽章（页面右上角显示当前身份）---- */
+.role-badge {
+  display: inline-block;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+.role-badge.owner { background: #e6f1fb; color: #0c447c; }
+.role-badge.admin { background: #fceceb; color: #a32d2d; }
+
+/* ---- 模拟支付确认页（v0.4.2）---- */
+.pay-box {
+  background: #f7f8f9;
+  border: 1px solid #e8eaec;
+  border-radius: 12px;
+  padding: 20px 18px;
+  margin-bottom: 16px;
+}
+.pay-amount {
+  font-size: 34px;
+  font-weight: 600;
+  color: #1a1d21;
+  line-height: 1.2;
+  margin: 6px 0 2px;
+}
+.pay-amount small { font-size: 16px; font-weight: 400; color: #6b7280; }
+.pay-meta {
+  font-size: 13px;
+  color: #6b7280;
+  margin-top: 8px;
+  line-height: 1.7;
+}
+.pay-methods {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0;
+}
+.pay-method {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e8eaec;
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  background: #fff;
+}
+.pay-method input { width: 18px; height: 18px; accent-color: #185fa5; }
+.pay-method .pay-method-name { flex: 1; }
+.pay-method .pay-method-tag {
+  font-size: 11px;
+  color: #8a9099;
+  background: #f0f1f2;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.pay-notice {
+  font-size: 12px;
+  color: #8a9099;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 8px;
+  padding: 10px 12px;
+  line-height: 1.6;
+  margin-bottom: 14px;
+}
+
+/* ---- 车位统计条（v0.4.2：64 个车位不再逐格展示）---- */
+.spot-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.spot-bar-track {
+  flex: 1;
+  min-width: 160px;
+  height: 12px;
+  border-radius: 999px;
+  background: #f0f1f2;
+  overflow: hidden;
+  display: flex;
+}
+.spot-bar-used {
+  background: #e24b4a;
+  height: 100%;
+}
+.spot-bar-free {
+  background: #97c459;
+  height: 100%;
+}
+.spot-bar-legend {
+  font-size: 12px;
+  color: #6b7280;
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+}
+.spot-bar-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.spot-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.spot-dot.used { background: #e24b4a; }
+.spot-dot.free { background: #97c459; }
+
 /* ---- 宽限期标记（v0.3.1）---- */
 .grace-tip {
   font-size: 11px;

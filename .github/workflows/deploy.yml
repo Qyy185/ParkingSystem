@@ -82,6 +82,7 @@ jobs:
         env:
           SECRET_ACCESS_PWD: ${{ secrets.ACCESS_PWD }}
           SECRET_SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          SECRET_ADMIN_PWD: ${{ secrets.ADMIN_PWD }}
         run: |
           if [ -n "$SECRET_ACCESS_PWD" ]; then
             echo "ACCESS_PWD=$SECRET_ACCESS_PWD" >> $GITHUB_ENV
@@ -112,6 +113,27 @@ jobs:
             echo "⚠️ 未配置 ACCESS_PWD Secret 和 access-pwd.txt，本次自动生成随机口令"
           fi
 
+          # ★ 管理员口令（v0.4.2）：管理后台和车主端分成两套权限。
+          #   优先级：Secret ADMIN_PWD → 仓库文件 admin-pwd.txt → 空（管理端关闭）
+          #
+          #   ★ 兜底**不能**用车主口令 —— 那样等于没分离，
+          #     车主拿到 parking2026 就能进后台改数据。
+          #     管理端没有管理员口令时是「关闭」状态，不是「公开」。
+          if [ -n "$SECRET_ADMIN_PWD" ]; then
+            echo "ADMIN_PWD=$SECRET_ADMIN_PWD" >> $GITHUB_ENV
+            echo "✅ 使用仓库 Secret 里的管理员口令"
+          elif [ -f admin-pwd.txt ] && [ -s admin-pwd.txt ]; then
+            APWD=$(tr -d "\r\n" < admin-pwd.txt | sed -e "s/^[[:space:]]*//" -e "s/[[:space:]]*$//" -e "s/^\"//" -e "s/\"$//" -e "s/^'//" -e "s/'$//")
+            if [ -n "$APWD" ]; then
+              echo "ADMIN_PWD=$APWD" >> $GITHUB_ENV
+              echo "✅ 使用 admin-pwd.txt 里的管理员口令：$APWD"
+            else
+              echo "⚠️ admin-pwd.txt 是空的，管理后台已关闭"
+            fi
+          else
+            echo "⚠️ 未配置 ADMIN_PWD Secret 和 admin-pwd.txt，管理后台已关闭"
+          fi
+
           # SECRET_KEY 同理：没配就生成一个随机的（app.py 也会自己兜底，
           # 但这里生成能保证多次重启 session 不失效）
           if [ -n "$SECRET_SECRET_KEY" ]; then
@@ -127,6 +149,9 @@ jobs:
         env:
           # ★ 平台注入的端口。Flask 读这个环境变量。
           PORT: '8080'
+          # ★ 管理员口令（v0.4.2）：管理后台专用。
+          #   值为空 = 管理后台关闭（app.py 里 is_admin_path 会拦掉）。
+          ADMIN_PWD: ${{ env.ADMIN_PWD }}
           # ★ 注意这里**没有**写 ACCESS_PWD / SECRET_KEY：
           #   上一步写进 $GITHUB_ENV 的值，本来就是本步骤的进程环境变量，
           #   shell 里直接用 $ACCESS_PWD / $SECRET_KEY 就能拿到。
@@ -232,6 +257,7 @@ jobs:
           #   所以这一步绝对不会把 job 弄红。
           export TARGET_URL="$TUNNEL_URL"
           export TARGET_PWD="$ACCESS_PWD"
+          export TARGET_ADMIN_PWD="$ADMIN_PWD"
           python3 tools/sync_tunnel_url.py
 
       - name: 保持服务在线

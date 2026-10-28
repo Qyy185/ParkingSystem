@@ -30,31 +30,102 @@ import store
 
 
 # ---------------------------------------------------------
-# 【已给】初始车位配置：A 区 8 个 + B 区 8 个，共 16 个
+# 【已给】初始车位配置：64 个车位，不分区
 # ---------------------------------------------------------
+# v0.4.2：从「A 区 8 个 + B 区 8 个」改成 64 个车位、**取消了分区**。
+#
+# 为什么取消分区：
+#   原来 A/B 两区只是初始数据的划分，计费逻辑里根本没用到 zone ——
+#   分流靠的是车牌查账户，不是车位。所以这个字段属于「有数据没用途」，
+#   去掉之后数据结构更干净，页面上也不用显示一堆没信息量的标签。
+#
+# 车位编号：P-01 ~ P-64（P = Parking）。
+#   保留字母前缀是为了以后真要分区/分层还能加，
+#   现在它只是个编号前缀，不代表有分区。
+#
+# ★ 数据迁移（v0.4.2）：
+#   老版本存过的 parking.json 是 16 个带 zone 的车位。
+#   get_spots() 会检测到结构不对（数量不对 / 还带 zone），
+#   自动重建为 64 个新车位 —— 已占用的车会按原顺序保留。
+SPOT_COUNT = 64
+SPOT_PREFIX = "P"
+
+
 def init_spots():
-    """生成 16 个初始车位。"""
+    """生成 64 个初始车位。"""
     spots = []
-    for letter in ["A", "B"]:
-        for i in range(1, 9):
-            spots.append({
-                "id": f"{letter}-{i:02d}",
-                "zone": f"{letter}区",
-                "status": "free",
-                "plate": None,
-                "entryTime": None,
-                # v0.2.1：记录这辆车走的哪条通道（monthly / temp）
-                "channel": None,
-            })
+    for i in range(1, SPOT_COUNT + 1):
+        spots.append({
+            "id": "%s-%02d" % (SPOT_PREFIX, i),
+            "status": "free",
+            "plate": None,
+            "entryTime": None,
+            # v0.2.1：记录这辆车走的哪条通道（monthly / temp）
+            "channel": None,
+        })
     return spots
 
 
+def _needs_migration(spots):
+    """判断存下来的车位数据是不是老结构。"""
+    if not isinstance(spots, list) or not spots:
+        return True
+    if len(spots) != SPOT_COUNT:
+        return True
+    # 老结构每个车位都带 zone 字段
+    if any("zone" in s for s in spots if isinstance(s, dict)):
+        return True
+    return False
+
+
+def migrate_spots(old_spots):
+    """老结构 → 新结构。已占用的车位尽量保留。
+
+    老数据是 16 个带 zone 的车位，新的是 64 个。
+    直接丢掉会丢失「场里有哪些车」，所以把已占用的车按原顺序
+    填回新车位的前面几个位置。
+    """
+    new_spots = init_spots()
+    if not isinstance(old_spots, list):
+        return new_spots
+
+    # 把老数据里还占着位的车按顺序收集出来
+    occupied = []
+    for s in old_spots:
+        if not isinstance(s, dict):
+            continue
+        if s.get("status") == "occupied" and s.get("plate"):
+            occupied.append({
+                "status": "occupied",
+                "plate": s.get("plate"),
+                "entryTime": s.get("entryTime"),
+                "channel": s.get("channel"),
+            })
+
+    # 填进新车位（从 1 开始往后排）
+    for i, o in enumerate(occupied[:SPOT_COUNT]):
+        new_spots[i].update(o)
+    return new_spots
+
+
 def get_spots():
-    """从 data/parking.json 读所有车位。文件是空的就用初始配置生成一份。"""
+    """从 data/parking.json 读所有车位。
+
+    三种情况：
+      · 文件是空 / 结构不对 → 用初始配置生成
+      · 文件是老结构（16 个带 zone）→ 迁移成 64 个新结构
+      · 正常 → 直接用
+    """
     spots = store.read_all()
     if not spots or not isinstance(spots, list):
         spots = init_spots()
         store.write_all(spots)
+        return spots
+
+    if _needs_migration(spots):
+        spots = migrate_spots(spots)
+        store.write_all(spots)
+
     return spots
 
 

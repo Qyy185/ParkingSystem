@@ -14,28 +14,32 @@
   </header>
 
   <div class="nav-links">
-    <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
-    <a class="nav-link" href="{{ url_for('scan') }}">扫码入场</a>
+    <span class="nav-link role-badge admin">管理员</span>
+    <a class="nav-link" href="{{ url_for('admin') }}">后台首页</a>
     <a class="nav-link" href="{{ url_for('accounts') }}">账户管理</a>
-    <a class="nav-link" href="{{ url_for('recharge') }}">充值</a>
     <a class="nav-link" href="{{ url_for('remind_page') }}">催缴</a>
+    <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
+    <a class="nav-link" href="{{ url_for('logout') }}">退出</a>
   </div>
 
   <section class="card">
     <div class="stat-row cols-4">
       <div class="stat"><span class="num">{{ spots|length }}</span><span class="lbl">总车位</span></div>
       <div class="stat"><span class="num free">{{ free_count }}</span><span class="lbl">空闲</span></div>
-      <div class="stat"><span class="num busy">{{ spots|length - free_count }}</span><span class="lbl">已占用</span></div>
+      <div class="stat"><span class="num busy">{{ occupied_count }}</span><span class="lbl">已占用</span></div>
       <div class="stat"><span class="num money">{{ revenue }}</span><span class="lbl">今日营收(元)</span></div>
     </div>
 
-    <div class="grid">
-      {% for s in spots %}
-      <div class="cell {{ 'is-free' if s.status == 'free' else 'is-busy' }}">
-        <span class="cell-id">{{ s.id }}</span>
-        <span class="cell-plate">{{ s.plate if s.plate else '空闲' }}</span>
+    <!-- ★ v0.4.2：64 个车位不再逐个画格子，只用进度条表示占用情况 -->
+    <div class="spot-bar">
+      <div class="spot-bar-track">
+        <div class="spot-bar-used" style="width: {{ used_percent }}%;"></div>
+        <div class="spot-bar-free" style="width: {{ free_percent }}%;"></div>
       </div>
-      {% endfor %}
+    </div>
+    <div class="spot-bar-legend">
+      <span><i class="spot-dot free"></i>空闲 {{ free_count }} 个</span>
+      <span><i class="spot-dot used"></i>已占用 {{ occupied_count }} 个</span>
     </div>
   </section>
 
