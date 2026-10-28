@@ -1211,6 +1211,17 @@ def test_mock_pages():
         check("★ %s 有模拟角标" % name, "mock-badge" in text, "HTTP %s" % status)
         check("★ %s 有模拟说明卡" % name, "mock-note" in text)
 
+    # ★ /mocks 必须属于管理端 —— 它会暴露内部实现细节
+    #   （哪些是假的、数据存在哪、认证怎么做的），不该让车主看到。
+    #   （2026-10-28 踩过：新增路由时忘了加进 ADMIN_PATHS，车主能直接打开）
+    import app as _appmod
+    check("★ /mocks 属于管理端路径",
+          _appmod.is_admin_path("/mocks"), "is_admin_path 返回 False")
+    check("★ /mocks 子路径也受保护",
+          _appmod.is_admin_path("/mocks/anything"))
+    for _p in ("/admin", "/accounts", "/remind"):
+        check("★ %s 仍受管理端保护" % _p, _appmod.is_admin_path(_p))
+
     # 支付页：角标 + 说明卡 + 醒目横幅
     status, url, text = post("/recharge/select",
                               {"plate": "黑A88888", "kind": "monthly",
