@@ -1,7 +1,10 @@
-公网地址: https://craig-tue-alot-filters.trycloudflare.com
+公网地址: https://jokes-suites-keeping-associations.trycloudflare.com
 
 访问口令: parking2026
 口令来源: 仓库文件 access-pwd.txt（固定口令）
+
+管理后台: /admin
+管理员口令: admin2026
 
 注: 这是临时地址，本次 Actions 运行结束后失效。
     需要新地址就重新触发一次部署。
