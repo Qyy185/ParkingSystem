@@ -8,6 +8,25 @@
 
 ### 方式 A：GitHub Actions 一键部署（推荐）
 
+#### A-0. 首次使用：先设置访问口令（**只需做一次**）
+
+> ⚠️ **不设口令 = 任何人拿到链接都能进后台改你的数据。**
+> 面试前务必设上。只需做一次。
+
+1. 仓库 → **Settings** → 左侧 **Secrets and variables** → **Actions**
+2. 点 **New repository secret**，加两个：
+
+   | Name | Value | 说明 |
+   |---|---|---|
+   | `ACCESS_PWD` | 随便起一个，比如 `demo2026` | 访问口令，用户要输入才能进 |
+   | `SECRET_KEY` | 一串随机字符，比如 `a8f3k2m9x7` | session 加密密钥 |
+
+   > `SECRET_KEY` 用随机串就行，不用记。作用是防止别人伪造 cookie 冒充你。
+
+3. 保存。**下次部署自动生效。**
+
+#### A-1. 触发部署
+
 1. 打开仓库 → **Actions** 标签页
 2. 左侧选 **部署到公网（临时隧道）**
 3. 点右侧 **Run workflow** → 确认
@@ -25,6 +44,18 @@
 
 > ⚠️ 这个地址是**临时的**——本次运行结束就失效。
 > 面试前 10 分钟跑一次，保证它还活着。
+
+#### A-1-1：不用登录 Actions 页面拿地址
+
+部署成功后，地址会自动同步到仓库根目录的 `tunnel-url.txt`。
+直接在仓库首页就能看到，或者命令行读：
+
+```bash
+curl -s https://raw.githubusercontent.com/Qyy185/ParkingSystem/main/tunnel-url.txt
+```
+
+**好处**：不用登录 GitHub，脚本能自动取到地址。
+（比如做个一键部署脚本，或者把地址发到微信收藏夹）
 
 ### 方式 B：本地跑 + 局域网（兜底）
 
