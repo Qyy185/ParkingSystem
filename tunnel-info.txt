@@ -1,0 +1,7 @@
+公网地址: https://commerce-stereo-obtained-latex.trycloudflare.com
+
+访问口令: 4Pwr0OVCCReatvq
+口令来源: 本次运行自动生成的随机口令
+
+注: 这是临时地址，本次 Actions 运行结束后失效。
+    需要新地址就重新触发一次部署。
