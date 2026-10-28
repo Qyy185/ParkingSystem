@@ -1,7 +1,7 @@
-公网地址: https://sound-ellis-identity-psychology.trycloudflare.com
+公网地址: https://craig-tue-alot-filters.trycloudflare.com
 
-访问口令: ARXGUk6NfoDIWc4Y
-口令来源: 本次运行自动生成的随机口令
+访问口令: parking2026
+口令来源: 仓库文件 access-pwd.txt（固定口令）
 
 注: 这是临时地址，本次 Actions 运行结束后失效。
     需要新地址就重新触发一次部署。
