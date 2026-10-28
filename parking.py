@@ -1,11 +1,18 @@
 """
-业务逻辑层 —— 你的主战场
-=========================
+业务逻辑层
+===========
 
-下面 5 个函数里，**前 2 个你已经写完了**（find_free_spot / calc_fee），
-**后 3 个留给你**（handle_entry / handle_exit / handle_pay）。
+下面 5 个函数全部已实现并通过自检（12/12）：
 
-写之前先想清楚：输入是什么、输出是什么、边界情况是什么。
+| 函数 | 职责 |
+|---|---|
+| `find_free_spot(spots)` | 车位分配：找第一个空闲车位 |
+| `calc_fee(entryTime)` | 分级计费：30 分钟免费 → 5 元/小时 → 每天封顶 40 |
+| `handle_entry(plate)` | 入场：分配车位 + 记时间戳 + 存盘 + 记流水 |
+| `handle_exit(plate)` | 出场计费：**只算钱，不放行** |
+| `handle_pay(plate)` | 缴费放行：释放车位 + 存盘 + 记流水 |
+
+设计要点：出场与缴费分成两步，为将来接支付接口留路径。
 """
 
 import math
@@ -41,7 +48,7 @@ def get_spots():
 
 
 # ============================================================
-# ✅ 你已写完：找车位
+# ✅ 找车位
 # 从车位列表里找出「第一个」空闲车位，找到返回该车位对象，找不到返回 None。
 # ============================================================
 def find_free_spot(spots):
@@ -52,14 +59,13 @@ def find_free_spot(spots):
 
 
 # ============================================================
-# ✅ 你已写完：算钱
+# ✅ 算钱
 # 规则：
 #   入场 30 分钟内免费
 #   之后 5 元/小时，不满 1 小时按 1 小时算
 #   每天封顶 40 元
 # ============================================================
 def calc_fee(entryTime):
-    import math
     minutes = (store.now_ms() - entryTime) // 60000
     if minutes <= 30:
         return 0
@@ -72,27 +78,11 @@ def calc_fee(entryTime):
 
 
 # ============================================================
-# ⬜ TODO 1 —— 入场
+# ✅ 入场
 # 输入：plate 车牌字符串
 # 做的事：找车位 → 记入场时间 → 写回数据 → 记一条流水
 # 返回：{"ok": True, "spot": 车位对象, "entryTime": 时间戳}
 #   或 {"ok": False, "msg": "车位已满"}
-#
-# 步骤：
-#   1. spots = get_spots()
-#   2. spot = find_free_spot(spots)
-#   3. spot 为 None → return {"ok": False, "msg": "车位已满"}
-#   4. spot["status"] = "occupied"
-#      spot["plate"] = plate
-#      spot["entryTime"] = store.now_ms()
-#   5. store.write_all(spots)          ← 少了这行，刷新页面就没了
-#   6. store.add_log({"type": "in", "plate": plate, "spot": spot["id"]})
-#   7. return {"ok": True, "spot": spot, "entryTime": spot["entryTime"]}
-#
-# ⚠️ Python 提示：
-#   · 判断空用 `is None`，不要用 `== None`
-#   · 取字典值用 spot["id"]，不是 spot.id
-#   · ⚠️ 状态字段 status 和 plate 必须一起改，不能只改一个
 # ============================================================
 def handle_entry(plate):
     spots = get_spots()
@@ -108,21 +98,13 @@ def handle_entry(plate):
 
 
 # ============================================================
-# ⬜ TODO 2 —— 出场算钱（先不放行）
+# ✅ 出场算钱（先不放行）
 # 输入：plate 车牌字符串
 # 做的事：找到这辆车 → 算钱 → 返回金额，但车位状态不变
 # 返回：{"ok": True, "fee": 金额, "minutes": 停了多久}
 #   或 {"ok": False, "msg": "没找到这辆车"}
 #
-# 步骤：
-#   1. spots = get_spots()
-#   2. 找到车牌等于 plate 的那个车位
-#      提示：[s for s in spots if s["plate"] == plate]
-#   3. 没找到 → return {"ok": False, "msg": "没找到这辆车"}
-#   4. fee = calc_fee(spot["entryTime"])
-#   5. minutes = (store.now_ms() - spot["entryTime"]) // 60000
-#   6. ★ 这里【不要】改车位状态！先算钱，等车主确认缴费才放行
-#   7. return {"ok": True, "fee": fee, "minutes": minutes}
+# ★ 关键：这里【不改】车位状态。先算钱，等车主确认缴费才放行。
 # ============================================================
 def handle_exit(plate):
     spots = get_spots()
@@ -135,25 +117,14 @@ def handle_exit(plate):
     return {"ok": True, "fee": fee, "minutes": minutes}
 
 # ============================================================
-# ⬜ TODO 3 —— 缴费放行
+# ✅ 缴费放行
 # 输入：plate 车牌字符串
 # 做的事：把这辆车的车位释放（status 变 free，清空 plate 和 entryTime）
 #       → 写回数据 → 记一条流水（带金额）
 # 返回：{"ok": True} 或 {"ok": False, "msg": "原因"}
 #
-# 步骤：
-#   1. spots = get_spots()
-#   2. 找到车牌等于 plate 的那个车位
-#   3. 没找到 → return {"ok": False, "msg": "没找到这辆车"}
-#   4. 记下要写流水的金额：fee = calc_fee(spot["entryTime"])
-#      记下时长：minutes = (store.now_ms() - spot["entryTime"]) // 60000
-#   5. spot["status"] = "free"
-#      spot["plate"] = None
-#      spot["entryTime"] = None
-#   6. store.write_all(spots)
-#   7. store.add_log({"type": "pay", "plate": plate, "spot": spot["id"],
-#                     "minutes": minutes, "fee": fee})
-#   8. return {"ok": True}
+# ★ 顺序陷阱：先算钱（用 entryTime），再清空。
+#   calc_fee 要用 entryTime 算钱，而后面会把 entryTime 设成 None。
 # ============================================================
 def handle_pay(plate):
     spots = get_spots()

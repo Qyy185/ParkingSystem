@@ -81,10 +81,10 @@ def main():
         status, _ = get("/static/style.css")
         check("GET /static/style.css 200", status == 200, "status=%d" % status)
 
-        # 4. 业务逻辑（等老叶实现）
+        # 4. 业务逻辑
         #    表单提交会 302 跳到 /?msg=... 或 /?ok_msg=...
         status, url, text = post("/entry", {"plate": "黑A12345"})
-        check("POST /entry 有响应（业务逻辑待实现）",
+        check("POST /entry 有响应",
               status == 200 and "msg=" in url, url)
 
         # 5. 空车牌被拦

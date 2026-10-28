@@ -134,10 +134,11 @@ def read_all():
 │   └── error.html      #   404 页
 ├── static/
 │   └── style.css       # 纯 CSS（响应式 + Grid 布局）
-├── data/               # 运行时生成的数据文件
+├── data/               # 运行时生成的数据文件（gitignore）
 ├── tools/
 │   ├── selftest.py     # 12 项自动化自检
-│   └── convert_launcher.ps1
+│   ├── launcher.src.txt # 启动器源文件（UTF-8）
+│   └── convert_launcher.ps1  # 转码成 GBK 的 启动.bat
 ├── requirements.txt
 └── 启动.bat
 ```
