@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>地下停车场 · 扫码入场</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% from "_mock.html" import mock_note, mock_badge %}
 </head>
 <body>
 <div class="wrap">
 
   <header class="head">
-    <h1>扫码入场</h1>
-    <p class="sub">模拟车牌识别摄像头 · 扫到车牌后自动分流</p>
+    <h1>扫码入场 {{ mock_badge('mock-scan') }}</h1>
+    <p class="sub">车牌识别摄像头 · 扫到车牌后自动分流</p>
   </header>
 
   {% if msg %}
@@ -23,6 +24,7 @@
 
   <!-- 摄像头取景框：模拟现实里的车牌识别一体机 -->
   <section class="card scanner">
+    {{ mock_note('mock-scan') }}
     <div class="scan-view">
       <div class="scan-corner tl"></div>
       <div class="scan-corner tr"></div>
@@ -59,6 +61,7 @@
           <button class="btn primary grow" type="submit">确认入场</button>
         </div>
       </form>
+      {{ mock_note('mock-barrier') }}
       <div class="row scanner-actions">
         <a class="btn grow" href="{{ url_for('scan') }}">重新扫描</a>
         <a class="btn grow" href="{{ url_for('index') }}">返回车主端</a>
@@ -83,6 +86,7 @@
       <p class="tip">
         现实中这里是一台车牌识别摄像头，扫到牌就自动开闸。<br>
         现在先手动输入车牌，等价于摄像头识别出了这个号。
+        <br>接真实摄像头要改哪里，看上面那张说明卡片。
       </p>
     {% endif %}
   </section>

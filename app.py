@@ -22,6 +22,7 @@ import time
 from flask import Flask, redirect, render_template, request, session, url_for
 
 import account
+import mocks
 import notify
 import parking
 import plate
@@ -131,6 +132,14 @@ app.jinja_env.filters["kind_label"] = account.kind_label
 app.jinja_env.filters["channel_label"] = notify.channel_label
 app.jinja_env.filters["in_grace"] = account.in_grace
 app.jinja_env.filters["grace_until"] = account.grace_until
+
+# ★ v0.4.3：模拟功能标注
+#   把 mocks 模块整个注入模板，模板里就能用 {{ mocks.by_id('mock-pay') }}。
+#   用 context_processor 而不是逐个 render_template 传参 ——
+#   以后新增页面自动就有，不用记得补一行。
+app.jinja_env.globals["mocks"] = mocks
+app.jinja_env.filters["mock_level_label"] = mocks.level_label
+app.jinja_env.filters["mock_level_desc"] = mocks.level_desc
 
 
 # ----------------------------------------------------------
@@ -326,6 +335,37 @@ def admin():
         used_percent=round(occupied_count * 100.0 / total, 1),
         free_percent=round(free_count * 100.0 / total, 1),
         revenue=store.today_revenue(),
+    )
+
+
+# ----------------------------------------------------------
+#  模拟功能清单页（v0.4.3）
+# ----------------------------------------------------------
+#  为什么要有这个页面：
+#   项目里有 7 处故意做成假的东西（不真扣钱、不真发短信、假摄像头……）。
+#   面试时如果只说「这个是模拟的」，对方会觉得你只会做玩具。
+#   但如果能主动指出「我知道哪几处是模拟的、每一处真实上线要换成什么、
+#   大概要多少工作量」—— 这是**工程意识**，比假装全都实现了更有说服力。
+#
+#   所以这个页面把 mocks.py 里的登记表原样渲染出来，
+#   并且每一处都写清三段：现在是什么 / 哪些是真的 / 换成什么。
+#
+#   ★ 这个页面属于管理端（要看到「不真扣钱」这些内部信息）。
+@app.route("/mocks")
+def mocks_page():
+    """模拟功能清单：所有模拟点 + 真实上线时的替换方案。"""
+    groups = mocks.grouped_by_level()
+    counts = {
+        "critical": len([m for m in mocks.MOCKS if m["level"] == "critical"]),
+        "high": len([m for m in mocks.MOCKS if m["level"] == "high"]),
+        "low": len([m for m in mocks.MOCKS if m["level"] == "low"]),
+    }
+    return render_template(
+        "mocks.html",
+        groups=groups,
+        counts=counts,
+        total=mocks.total(),
+        levels=mocks.LEVELS,
     )
 
 

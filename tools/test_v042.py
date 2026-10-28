@@ -12,6 +12,7 @@ v0.4.2 端到端测试：车位 64 个 + 权限分离 + 模拟支付确认页。
 import http.cookiejar
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -258,9 +259,18 @@ check("★ 车主访问 /remind 被拒", st == 302, "HTTP %s" % st)
 # 车主能不能进车主端？—— 能
 st, _, body = owner.get("/")
 check("车主能进车主端", st == 200, "HTTP %s" % st)
-check("★ 车主端不显示管理后台链接", "管理后台" not in body)
-check("★ 车主端不显示账户管理链接", "账户管理" not in body)
-check("★ 车主端不显示催缴链接", "催缴" not in body)
+# ★ v0.4.3：不能全文搜索「管理后台」这三个字 ——
+#   模拟功能说明卡里写了位置描述（"管理后台 → 催缴管理"），
+#   全文搜索会被误伤。本意是「**导航区**没有管理端链接」，
+#   所以只取 <nav> 区域来判断。
+_nav = ""
+_m = re.search(r'<div class="nav-links">(.*?)</div>', body, re.S)
+if _m:
+    _nav = _m.group(1)
+check("★ 车主端不显示管理后台链接", "管理后台" not in _nav, _nav[:120])
+check("★ 车主端不显示账户管理链接", "账户管理" not in _nav, _nav[:120])
+check("★ 车主端不显示催缴链接", "催缴" not in _nav, _nav[:120])
+check("★ 车主端不显示模拟清单链接", "模拟清单" not in _nav, _nav[:120])
 
 # 错误口令
 bad = Browser()
@@ -305,7 +315,12 @@ check("车主端显示总车位 64", "64" in body)
 check("车主端显示「已占用」", "已占用" in body)
 check("车主端显示「空闲」", "空闲" in body)
 check("★ 不再逐个渲染车位格子", "cell-id" not in body, "找到 cell-id")
-check("★ 不显示车位编号 P-01", "P-01" not in body)
+# ★ v0.4.3：不能全文搜索 "P-01" —— 模拟说明卡里写了
+#   "车位编号（P-01 ~ P-64）"，会误伤。
+#   本意是「不逐个渲染车位格子」，检查渲染结构标记更准确。
+check("★ 不逐个渲染车位编号", 'class="cell-id"' not in body
+      and 'class="cell ' not in body)
+check("★ 车位区用进度条表示占用", "spot-bar" in body)
 
 st, _, body = admin.get("/admin")
 check("后台显示总车位 64", "64" in body)

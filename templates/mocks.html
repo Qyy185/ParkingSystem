@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>地下停车场 · 模拟功能清单</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap wide">
+  <header class="head">
+    <h1>模拟功能清单</h1>
+    <p class="sub">哪些地方是演示用的假实现 · 真实上线时怎么替换 · 大概要多久</p>
+  </header>
+
+  <div class="nav-links">
+    <span class="nav-link role-badge admin">管理员</span>
+    <a class="nav-link" href="{{ url_for('admin') }}">后台首页</a>
+    <a class="nav-link" href="{{ url_for('accounts') }}">账户管理</a>
+    <a class="nav-link" href="{{ url_for('remind_page') }}">催缴</a>
+    <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
+    <a class="nav-link" href="{{ url_for('logout') }}">退出</a>
+  </div>
+
+  <div class="mock-why">
+    <b>这个页面是干什么用的？</b><br>
+    演示环境没有摄像头、没有支付牌照、没有短信服务商账号、没有数据库实例，
+    所以有 {{ total }} 处功能用假实现代替。
+    <b>但业务逻辑是真的</b>——车牌分流、计费规则、催缴档位、权限隔离
+    全部按真实规则实现，没有为了演示而糊弄。<br>
+    下面每一条都写清了：现在怎么做、<b>哪些部分可以直接留用</b>、
+    真实上线换成什么、要改哪些文件、大概多少工作量。
+    换成真环境时<b>不需要推翻重写</b>。
+  </div>
+
+  <div class="mock-summary">
+    <div class="mock-summary-box">
+      <span class="n">{{ total }}</span>
+      <span class="t">模拟点总数</span>
+    </div>
+    <div class="mock-summary-box">
+      <span class="n critical">{{ counts.critical }}</span>
+      <span class="t">关键模拟 · 必须替换</span>
+    </div>
+    <div class="mock-summary-box">
+      <span class="n high">{{ counts.high }}</span>
+      <span class="t">重要模拟 · 建议替换</span>
+    </div>
+    <div class="mock-summary-box">
+      <span class="n low">{{ counts.low }}</span>
+      <span class="t">简化实现 · 规模上去再改</span>
+    </div>
+  </div>
+
+  {% for level, items in groups %}
+  <section class="card">
+    <h2>
+      {{ level | mock_level_label }}
+      <span class="mock-badge {{ level }}">{{ items | length }} 处</span>
+    </h2>
+    <p class="tip" style="text-align: left; padding-top: 0;">
+      {{ level | mock_level_desc }}
+    </p>
+
+    <div class="mock-list">
+      {% for m in items %}
+      <div class="mock-item {{ m.level }}" id="{{ m.id }}">
+        <div class="mock-item-head">
+          <span class="mock-item-title">{{ m.title }}</span>
+          <span class="mock-badge {{ m.level }}">{{ level | mock_level_label }}</span>
+        </div>
+        <div class="mock-item-where">位置：{{ m.where }}</div>
+
+        <div class="mock-item-grid">
+          <div class="mock-item-sec">
+            <span class="mock-note-label now">现在</span>
+            {{ m.reality }}
+          </div>
+          <div class="mock-item-sec">
+            <span class="mock-note-label keep">保留</span>
+            {{ m.keep }}
+          </div>
+          <div class="mock-item-sec">
+            <span class="mock-note-label next">换成</span>
+            {{ m.replace }}
+          </div>
+          <div class="mock-item-sec">
+            <span class="mock-note-label cost">工作量</span>
+            {{ m.effort }}
+            <div class="mock-note-files">改动位置：{{ m.files }}</div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+
+  <section class="card">
+    <h2>设计上刻意保留的真实部分</h2>
+    <p class="tip" style="text-align: left; padding-top: 0;">
+      换成真实环境时，下面这些<b>一行都不用改</b>：<br>
+      · <strong>车牌分流</strong>：查账户 → 判断月租/年租/临停 → 走对应通道计费<br>
+      · <strong>计费规则</strong>：按天分段、每天封顶、30 分钟内免费<br>
+      · <strong>催缴档位</strong>：到期前 7/3/1 天各提醒一次，同档不重复发<br>
+      · <strong>宽限期</strong>：过期后保留账户，期内续费可恢复会员身份<br>
+      · <strong>权限隔离</strong>：车主进不去管理端，管理端路由前缀拦截<br>
+      · <strong>金额防篡改</strong>：支付金额后端重算，前端改表单无效<br>
+      · <strong>通知渠道抽象</strong>：业务层不关心消息怎么发，接真服务只换实现
+    </p>
+  </section>
+
+  <footer class="foot">
+    <a href="{{ url_for('index') }}">← 返回车主端</a>
+    ·
+    <a href="{{ url_for('admin') }}">管理后台</a>
+  </footer>
+</div>
+</body>
+</html>

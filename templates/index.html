@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>地下停车场 · 车主端</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% from "_mock.html" import mock_note, mock_badge %}
 </head>
 <body>
 <div class="wrap">
@@ -36,7 +37,7 @@
   {% endif %}
 
   <section class="card">
-    <h2>车位</h2>
+    <h2>车位 {{ mock_badge('mock-storage') }}</h2>
     <div class="stat-row cols-3">
       <div class="stat"><span class="num">{{ spots|length }}</span><span class="lbl">总车位</span></div>
       <div class="stat"><span class="num free">{{ free_count }}</span><span class="lbl">空闲</span></div>
@@ -54,6 +55,9 @@
       <span><i class="spot-dot free"></i>空闲 {{ free_count }} 个</span>
       <span><i class="spot-dot used"></i>已占用 {{ occupied_count }} 个</span>
     </div>
+
+    {{ mock_note('mock-storage') }}
+    {{ mock_note('mock-sensor') }}
   </section>
 
   <section class="card">

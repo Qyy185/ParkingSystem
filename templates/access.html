@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>地下停车场 · 请输入访问口令</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% from "_mock.html" import mock_note, mock_badge %}
 </head>
 <body>
 <div class="wrap">
@@ -14,9 +15,9 @@
     <h1 class="access-title">地下停车场系统</h1>
 
     {% if role == 'admin' %}
-    <p class="access-sub">管理后台 · 请输入管理员口令</p>
+    <p class="access-sub">管理后台 · 请输入管理员口令 {{ mock_badge('mock-auth') }}</p>
     {% else %}
-    <p class="access-sub">车主端 · 请输入访问口令</p>
+    <p class="access-sub">车主端 · 请输入访问口令 {{ mock_badge('mock-auth') }}</p>
     {% endif %}
 
     {% if error %}

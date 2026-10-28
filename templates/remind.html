@@ -5,18 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>地下停车场 · 催缴管理</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% from "_mock.html" import mock_note, mock_badge %}
 </head>
 <body>
 <div class="wrap wide">
   <header class="head">
-    <h1>催缴管理</h1>
-    <p class="sub">会员租期到期前提醒续费 · 短信 / 微信双渠道（当前为模拟发送）</p>
+    <h1>催缴管理 {{ mock_badge('mock-notify') }}</h1>
+    <p class="sub">会员租期到期前提醒续费 · 短信 / 微信双渠道</p>
   </header>
 
   <div class="nav-links">
     <span class="nav-link role-badge admin">管理员</span>
     <a class="nav-link" href="{{ url_for('admin') }}">后台首页</a>
     <a class="nav-link" href="{{ url_for('accounts') }}">账户管理</a>
+    <a class="nav-link" href="{{ url_for('mocks_page') }}">模拟清单</a>
     <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
     <a class="nav-link" href="{{ url_for('logout') }}">退出</a>
   </div>
@@ -27,6 +29,16 @@
   {% if ok_msg %}
   <div class="alert alert-ok">{{ ok_msg }}</div>
   {% endif %}
+
+  <div class="mock-banner critical">
+    <span class="mock-banner-icon">!</span>
+    <div>
+      <b>催缴消息目前不真发。</b>
+      点「一键催缴」会把消息写进本地记录文件，车主手机上收不到。
+      发送记录里的状态标的是<b>「模拟已发送」</b>，不会伪装成已送达。
+      怎么接真实短信/微信，见下面说明卡片。
+    </div>
+  </div>
 
   <section class="card">
     <div class="stat-row cols-4">
@@ -77,10 +89,7 @@
         <button class="btn primary" type="submit">一键催缴</button>
       </div>
     </form>
-    <p class="tip">
-      当前为<b>模拟发送</b>：不会真的发短信，每条消息都会完整记录到下方的发送记录里。
-      接真实服务商只需替换 <code>notify.py</code> 里的渠道实现。
-    </p>
+    {{ mock_note('mock-notify') }}
   </section>
 
   <!-- 待催缴列表 -->
@@ -152,7 +161,11 @@
   <!-- 发送记录 -->
   {% if notifications %}
   <section class="card">
-    <h2>发送记录</h2>
+    <h2>发送记录 {{ mock_badge('mock-notify') }}</h2>
+    <p class="tip" style="text-align: left; padding-top: 0;">
+      这些记录是<b>模拟发送日志</b>，只写进本地文件，没有真的投递出去。
+      接上真实渠道后，这里的状态会变成真实的服务商回执。
+    </p>
     <div class="table-wrap">
       <table class="table">
         <thead>
@@ -166,7 +179,7 @@
             <td data-label="接收方" class="plate">{{ n.target }}</td>
             <td data-label="内容" class="remind-msg">{{ n.content }}</td>
             <td data-label="状态">
-              <span class="kind-badge temp">模拟已发送</span>
+              <span class="mock-status">模拟已发送</span>
             </td>
           </tr>
           {% endfor %}

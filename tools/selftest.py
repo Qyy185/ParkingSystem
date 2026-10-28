@@ -1144,6 +1144,85 @@ def post(path, data):
         return e.code, e.geturl(), e.read().decode("utf-8")
 
 
+# ============================================================
+# 模拟功能标注测试（v0.4.3）
+# ============================================================
+def test_mock_registry():
+    """模拟点登记表本身的完整性。"""
+    import mocks
+
+    check("登记表有模拟点", mocks.total() >= 5, "共 %d 条" % mocks.total())
+
+    # 每一条都必须写清「现在是什么 / 哪些是真的 / 换成什么」
+    missing = []
+    for m in mocks.MOCKS:
+        for field in ("id", "title", "where", "level", "reality", "keep",
+                      "replace", "effort", "files"):
+            if not m.get(field):
+                missing.append("%s 缺 %s" % (m.get("id", "?"), field))
+    check("★ 每条模拟点字段齐全", not missing, "; ".join(missing[:3]))
+
+    # 级别必须合法
+    bad_level = [m["id"] for m in mocks.MOCKS if m["level"] not in mocks.LEVELS]
+    check("★ 模拟点级别合法", not bad_level, str(bad_level))
+
+    # id 不能重复
+    ids = [m["id"] for m in mocks.MOCKS]
+    check("★ 模拟点 id 不重复", len(ids) == len(set(ids)))
+
+    # 必须包含这几类关键模拟
+    for must in ("mock-pay", "mock-notify", "mock-scan", "mock-storage", "mock-auth"):
+        check("★ 登记表含 %s" % must, mocks.by_id(must) is not None)
+
+    # 「换成」这一段必须提到具体的技术方案，不能是空话
+    vague = []
+    for m in mocks.MOCKS:
+        r = m.get("replace", "")
+        if len(r) < 30:
+            vague.append(m["id"])
+    check("★ 每条都写明了具体替换方案", not vague, str(vague))
+
+
+def test_mock_pages():
+    """页面上确实标出了模拟点，并写明了改成什么。"""
+    import mocks
+
+    # 清单页能打开，且列出了全部模拟点
+    status, text = get("/mocks")
+    check("模拟清单页可访问", status == 200, "HTTP %s" % status)
+    check("★ 清单页显示模拟点总数", "模拟点总数" in text)
+    for m in mocks.MOCKS:
+        check("★ 清单页含「%s」" % m["title"], m["title"] in text)
+    check("★ 清单页有「保留」段说明哪些是真的", "保留" in text)
+    check("★ 清单页有「换成」段说明怎么替换", "换成" in text)
+    check("★ 清单页有工作量估算", "工作量" in text)
+
+    # 各业务页都要有角标或说明卡
+    pages = [
+        ("/", "车主端"),
+        ("/scan", "扫码页"),
+        ("/recharge", "充值页"),
+        ("/admin", "管理后台"),
+        ("/accounts", "账户管理"),
+        ("/remind", "催缴页"),
+    ]
+    for path, name in pages:
+        status, text = get(path)
+        check("★ %s 有模拟角标" % name, "mock-badge" in text, "HTTP %s" % status)
+        check("★ %s 有模拟说明卡" % name, "mock-note" in text)
+
+    # 支付页：角标 + 说明卡 + 醒目横幅
+    status, url, text = post("/recharge/select",
+                              {"plate": "黑A88888", "kind": "monthly",
+                               "periods": "1"})
+    check("★ 支付页有模拟角标", "mock-badge" in text)
+    check("★ 支付页有模拟说明卡", "mock-note" in text)
+    check("★ 支付页有醒目横幅", "mock-banner" in text)
+    check("★ 支付页横幅说明不会真扣钱", "不会真的扣钱" in text)
+    check("★ 支付页写了接真实支付怎么改",
+          "微信支付" in text and "支付宝" in text)
+
+
 def test_http():
     print("=== 启动服务器 ===")
     # ★ 服务器输出必须写到文件，不能用 PIPE。
@@ -1457,6 +1536,16 @@ def test_http():
         status, text = get("/")
         check("车主端含局域网访问提示", "手机访问" in text or "lan-tip" in text)
 
+        # ============================================================
+        #  模拟功能标注测试（v0.4.3）
+        # ============================================================
+        # ★ 必须放在这个 try 块**里面** —— 块外的 finally 会
+        #   terminate 掉服务器进程，之后再发请求就是
+        #   「Remote end closed connection without response」。
+        #   （2026-10-28 踩过：test_mock_pages() 原本写在 test_http() 之后，
+        #     服务器已经被关掉，第一个 GET /mocks 直接崩。）
+        test_mock_pages()
+
     except Exception as e:
         check("请求过程无异常", False, str(e))
     finally:
@@ -1518,6 +1607,9 @@ def main():
     print("=== 公网部署配置测试（v0.4） ===")
     test_deploy_config()
     test_access_password()
+
+    print("=== 模拟功能标注测试（v0.4.3） ===")
+    test_mock_registry()
 
     test_http()
 

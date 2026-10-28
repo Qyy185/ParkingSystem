@@ -1,0 +1,79 @@
+{#
+  模拟功能标注宏（v0.4.3）
+  =========================
+
+  统一渲染「这里是模拟的」以及「真实上线要换成什么」。
+
+  用法一：页头横幅（整页提醒）
+      {% from "_mock.html" import mock_banner %}
+      {{ mock_banner('mock-pay') }}
+
+  用法二：说明卡片（跟在具体功能旁边）
+      {{ mock_note('mock-pay') }}
+
+  用法三：只放个小角标（标题旁边）
+      {{ mock_badge('mock-pay') }}
+
+  设计说明：
+  - 标注内容全部来自 mocks.py，这里只管排版。
+    改文案只改 mocks.py 一处，不用翻模板。
+  - 三段固定顺序：现在是什么 → 哪些是真的 → 换成什么。
+    讲的时候不会卡在「这是模拟的」就没下文。
+#}
+
+{% macro mock_badge(mock_id) %}
+  {%- set m = mocks.by_id(mock_id) -%}
+  {%- if m -%}
+    <span class="mock-badge {{ m.level }}" title="{{ m.title }}">模拟 · {{ m.level | mock_level_label }}</span>
+  {%- endif -%}
+{% endmacro %}
+
+
+{% macro mock_note(mock_id) %}
+  {%- set m = mocks.by_id(mock_id) -%}
+  {%- if m -%}
+  <div class="mock-note {{ m.level }}" id="{{ m.id }}">
+    <div class="mock-note-head">
+      <span class="mock-note-title">{{ m.title }}</span>
+      <span class="mock-badge {{ m.level }}">模拟 · {{ m.level | mock_level_label }}</span>
+      <span class="mock-note-where">位置：{{ m.where }}</span>
+    </div>
+
+    <div class="mock-note-sec">
+      <span class="mock-note-label now">现在</span>
+      <span class="mock-note-text">{{ m.reality }}</span>
+    </div>
+
+    <div class="mock-note-sec">
+      <span class="mock-note-label keep">保留</span>
+      <span class="mock-note-text">{{ m.keep }}</span>
+    </div>
+
+    <div class="mock-note-sec">
+      <span class="mock-note-label next">换成</span>
+      <span class="mock-note-text">{{ m.replace }}</span>
+    </div>
+
+    <div class="mock-note-sec">
+      <span class="mock-note-label cost">工作量</span>
+      <span class="mock-note-text">{{ m.effort }}</span>
+      <div class="mock-note-files">改动位置：{{ m.files }}</div>
+    </div>
+  </div>
+  {%- endif -%}
+{% endmacro %}
+
+
+{% macro mock_page_banner(mock_ids, title='本页含模拟功能') %}
+  {%- set ids = mock_ids | list -%}
+  {%- if ids -%}
+  <div class="mock-banner critical">
+    <span class="mock-banner-icon">!</span>
+    <div>
+      <b>{{ title }}</b> —— 下面带「模拟」角标的地方，演示环境用假数据/假渠道代替，
+      真实上线时要替换。每处的替换方案都写在旁边的说明卡片里，
+      <a href="{{ url_for('mocks_page') }}">完整清单见「模拟功能清单」</a>。
+    </div>
+  </div>
+  {%- endif -%}
+{% endmacro %}

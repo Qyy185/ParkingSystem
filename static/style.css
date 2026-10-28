@@ -753,3 +753,238 @@ body {
   .remind-toolbar .inline-form { gap: 10px; }
   .remind-toolbar .btn { width: 100%; }
 }
+
+/* ============================================================
+   模拟功能标注（v0.4.3）
+   ============================================================
+   目标：让每一处「这里是模拟的」在页面上**一眼能看见**，
+   并且**紧挨着**就能看到「真实上线要换成什么」。
+
+   设计取舍：
+   - 不用 <details> 原生折叠 —— 移动端点击区域小、展开箭头不明显，
+     而且演示时折叠起来就等于没标。
+   - 改成「常驻卡片 + 左侧色条」：色条颜色区分严重程度，
+     critical 用红、high 用橙、low 用灰。
+   - 说明卡片里固定三段式：
+       现在是什么 → 哪些是真的 → 换成什么
+     这样讲的时候不会只说「这是假的」就卡住。
+   ============================================================ */
+
+/* ---------- 1. 角标：跟在标题旁边的小标签 ---------- */
+.mock-badge {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 6px;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.mock-badge.critical { background: #fceceb; color: #a32d2d; border-color: #f3c6c4; }
+.mock-badge.high     { background: #fdf3e3; color: #854f0b; border-color: #f0d9a8; }
+.mock-badge.low      { background: #eef0f2; color: #4e5969; border-color: #d8dce1; }
+
+/* ---------- 2. 说明卡片：整块内容 ---------- */
+.mock-note {
+  position: relative;
+  background: #fffbf6;
+  border: 1px solid #f0d9a8;
+  border-left: 4px solid #d9973a;
+  border-radius: 8px;
+  padding: 12px 14px 12px 14px;
+  margin: 12px 0;
+  font-size: 13px;
+  line-height: 1.75;
+  color: #4e4034;
+}
+.mock-note.critical { border-left-color: #d4453c; border-color: #f3c6c4; border-left-color: #d4453c; }
+.mock-note.high     { border-left-color: #d9973a; }
+.mock-note.low      { border-left-color: #8a9099; background: #f8f9fa; border-color: #e2e5e9; color: #4e5969; }
+
+/* 卡片头部：标题 + 级别 + 所在位置 */
+.mock-note-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mock-note-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2329;
+}
+.mock-note-where {
+  font-size: 12px;
+  color: #8a9099;
+  width: 100%;
+}
+
+/* 卡片里的三段：现在 / 保留 / 替换 */
+.mock-note-sec {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px dashed #e4d5b8;
+}
+.mock-note.low .mock-note-sec { border-top-color: #e2e5e9; }
+.mock-note-label {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 4px;
+  margin-right: 6px;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.mock-note-label.now   { background: #fdeee6; color: #a5372a; }
+.mock-note-label.keep  { background: #e1f5ee; color: #0f6e56; }
+.mock-note-label.next  { background: #e6f1fb; color: #185fa5; }
+.mock-note-label.cost  { background: #eef0f2; color: #4e5969; }
+.mock-note-text { display: inline; color: #4e4034; }
+.mock-note.low .mock-note-text { color: #4e5969; }
+.mock-note-text code,
+.mock-note-sec code {
+  background: #f0f1f2;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.mock-note-files {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #8a9099;
+  word-break: break-all;
+}
+
+/* ---------- 3. 页头横幅：整页级别的提醒 ---------- */
+.mock-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #fffbf6;
+  border: 1px solid #f0d9a8;
+  border-radius: 10px;
+  padding: 11px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #4e4034;
+}
+.mock-banner-icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #d9973a;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 20px;
+  margin-top: 1px;
+}
+.mock-banner.critical .mock-banner-icon { background: #d4453c; }
+.mock-banner.low .mock-banner-icon { background: #8a9099; }
+.mock-banner b { color: #1f2329; }
+
+/* ---------- 4. 清单页：模拟点总表 ---------- */
+.mock-list { display: flex; flex-direction: column; gap: 12px; }
+.mock-item {
+  border: 1px solid #e2e5e9;
+  border-left: 4px solid #d9973a;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #fff;
+}
+.mock-item.critical { border-left-color: #d4453c; }
+.mock-item.high     { border-left-color: #d9973a; }
+.mock-item.low      { border-left-color: #8a9099; }
+.mock-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.mock-item-title { font-size: 15px; font-weight: 600; }
+.mock-item-where { font-size: 12px; color: #8a9099; margin-bottom: 6px; }
+.mock-item-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+.mock-item-sec {
+  font-size: 13px;
+  line-height: 1.75;
+  color: #4e5969;
+}
+.mock-item-sec .mock-note-label { margin-bottom: 2px; display: inline-block; }
+
+/* 清单页顶部的统计条 */
+.mock-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.mock-summary-box {
+  background: #f8f9fa;
+  border: 1px solid #e2e5e9;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.mock-summary-box .n {
+  display: block;
+  font-size: 20px;
+  font-weight: 600;
+  color: #1f2329;
+  line-height: 1.2;
+}
+.mock-summary-box .n.critical { color: #d4453c; }
+.mock-summary-box .n.high     { color: #d9973a; }
+.mock-summary-box .n.low      { color: #6b7480; }
+.mock-summary-box .t {
+  display: block;
+  font-size: 12px;
+  color: #8a9099;
+  margin-top: 2px;
+}
+
+/* 清单页说明：为什么要有这个页面 */
+.mock-why {
+  background: #e6f1fb;
+  border: 1px solid #bcd9f5;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: #1b4a80;
+  margin-bottom: 16px;
+}
+.mock-why b { color: #0c447c; }
+
+/* 表格里的模拟状态标记 */
+.mock-status {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #fffbf6;
+  border: 1px solid #f0d9a8;
+  color: #854f0b;
+  white-space: nowrap;
+}
+
+/* 移动端：说明卡片内边距收紧一点 */
+@media (max-width: 480px) {
+  .mock-note { padding: 11px 12px; font-size: 13px; }
+  .mock-note-title { font-size: 14px; }
+  .mock-note-label { display: inline-block; margin-bottom: 2px; }
+  .mock-banner { padding: 10px 12px; font-size: 12.5px; }
+  .mock-item { padding: 12px 13px; }
+}

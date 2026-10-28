@@ -5,11 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>地下停车场 · 账户管理</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% from "_mock.html" import mock_note, mock_badge %}
 </head>
 <body>
 <div class="wrap wide">
   <header class="head">
-    <h1>账户管理</h1>
+    <h1>账户管理 {{ mock_badge('mock-storage') }}</h1>
     <p class="sub">长期会员账户（月租 / 年租）· 临停车辆入场自动建临时账号、出场自动删</p>
   </header>
 
@@ -18,6 +19,7 @@
     <a class="nav-link" href="{{ url_for('admin') }}">后台首页</a>
     <a class="nav-link" href="{{ url_for('accounts') }}">账户管理</a>
     <a class="nav-link" href="{{ url_for('remind_page') }}">催缴</a>
+    <a class="nav-link" href="{{ url_for('mocks_page') }}">模拟清单</a>
     <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
     <a class="nav-link" href="{{ url_for('logout') }}">退出</a>
   </div>
@@ -43,6 +45,8 @@
     {% if stats.obsolete %}
     <p class="tip">其中 {{ stats.obsolete }} 个账户已过宽限期，车辆下次出场时将自动注销。</p>
     {% endif %}
+
+    {{ mock_note('mock-storage') }}
   </section>
 
   <section class="card">

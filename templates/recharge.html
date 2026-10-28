@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>地下停车场 · 充值</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% from "_mock.html" import mock_note, mock_badge %}
 </head>
 <body>
 <div class="wrap">
 
   <header class="head">
-    <h1>充值</h1>
+    <h1>充值 {{ mock_badge('mock-pay') }}</h1>
     <p class="sub">开通月租 / 年租 · 充值后入场不计停车费</p>
   </header>
 
@@ -48,6 +49,16 @@
     </div>
     {% endif %}
 
+    <div class="mock-banner critical">
+      <span class="mock-banner-icon">!</span>
+      <div>
+        <b>本次充值不会真的扣钱。</b>
+        点「确认充值」会先进入<b>模拟收银台</b>，
+        在那里看清金额、选支付方式、点「确认支付」才开通。
+        全程没有真实资金往来。
+      </div>
+    </div>
+
     <form method="post" action="{{ url_for('recharge_do') }}">
       <input type="hidden" name="plate" value="{{ account_plate }}">
       <input type="hidden" name="kind" value="{{ selected.kind }}">
@@ -56,6 +67,8 @@
         <button class="btn primary grow" type="submit">确认充值 {{ selected.price }} 元</button>
       </div>
     </form>
+
+    {{ mock_note('mock-pay') }}
     <div class="row scanner-actions">
       <a class="btn grow" href="{{ url_for('recharge') }}">重新选择</a>
     </div>
@@ -65,6 +78,11 @@
   <!-- 第一步：选套餐 -->
   <section class="card">
     <h2>第一步 · 选套餐</h2>
+    <p class="tip" style="text-align: left; padding-top: 0;">
+      选完套餐和时长后会进入模拟收银台确认，
+      <b>不会真实扣款</b>。
+    </p>
+    {{ mock_note('mock-pay') }}
     <form method="post" action="{{ url_for('recharge_select') }}">
       <div class="row" style="margin-bottom: 14px;">
         <input class="input" type="text" name="plate" placeholder="车牌号，如 黑A12345"

@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>地下停车场 · 确认支付</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% from "_mock.html" import mock_note, mock_badge %}
 </head>
 <body>
 <div class="wrap">
 
   <header class="head">
-    <h1>确认支付</h1>
+    <h1>确认支付 {{ mock_badge('mock-pay') }}</h1>
     <p class="sub">{{ title }} · 请核对金额后确认</p>
   </header>
 
@@ -18,6 +19,15 @@
     <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
     <a class="nav-link" href="{{ url_for('recharge') }}">充值</a>
     <a class="nav-link" href="{{ url_for('scan') }}">扫码入场</a>
+  </div>
+
+  <div class="mock-banner critical">
+    <span class="mock-banner-icon">!</span>
+    <div>
+      <b>这是模拟收银台，不会真的扣钱。</b>
+      点了「确认支付」只是把余额和有效期改掉，没有真实资金往来。
+      底部的说明卡片写清了接微信/支付宝真实支付要改哪几处。
+    </div>
   </div>
 
   <section class="card">
@@ -31,14 +41,13 @@
       </div>
     </div>
 
-    <div class="pay-notice">
-      这是<strong>模拟收银台</strong>，不会真的扣钱。
-      目的是走通「看清金额 → 选支付方式 → 确认」这一步 ——
-      将来接微信/支付宝真实支付，只改后端的支付渠道，页面不用动。
-    </div>
+    {{ mock_note('mock-pay') }}
 
     <form method="post" action="{{ url_for('pay_confirm', kind=kind) }}">
       <h2>选择支付方式</h2>
+      <p class="tip" style="text-align: left; padding-top: 0; margin-bottom: 10px;">
+        下面三个选项目前都只是标签，选哪个都不产生真实扣款。
+      </p>
       <div class="pay-methods">
         {% for m in methods %}
         <label class="pay-method">
