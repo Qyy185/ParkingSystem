@@ -51,7 +51,7 @@
     <form method="post" action="{{ url_for('entry') }}">
       <div class="row">
         <input class="input" type="text" name="plate" placeholder="车牌号，如 黑A12345"
-               maxlength="10" autocomplete="off" required>
+               maxlength="12" autocomplete="off" required>
         <button class="btn primary" type="submit">入场</button>
       </div>
     </form>
@@ -62,13 +62,16 @@
     <form method="post" action="{{ url_for('exit') }}">
       <div class="row">
         <input class="input" type="text" name="plate" placeholder="要出场的车牌号"
-               maxlength="10" autocomplete="off" required>
+               maxlength="12" autocomplete="off" required>
         <button class="btn" type="submit">查询费用</button>
       </div>
     </form>
   </section>
 
-  <footer class="foot">停车 30 分钟内免费 · 之后 5 元/小时 · 每天封顶 40 元</footer>
+  <footer class="foot">
+    停车 30 分钟内免费 · 之后 5 元/小时 · 每天封顶 40 元<br>
+    车牌格式：省份简称 + 字母 + 5~6 位，如 黑A12345（大小写、空格自动识别）
+  </footer>
 </div>
 </body>
 </html>
