@@ -1,4 +1,4 @@
-公网地址: https://goat-tucson-incorporated-endif.trycloudflare.com
+公网地址: https://basin-warriors-pursuant-bosnia.trycloudflare.com
 
 访问口令: parking2026
 口令来源: 仓库文件 access-pwd.txt（固定口令）
