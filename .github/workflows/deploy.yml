@@ -61,20 +61,23 @@ jobs:
           chmod +x cloudflared
           ./cloudflared --version
 
-      # ★★ 决定用哪个访问口令（2026-10-28 加）
+      # ★★ 决定用哪个访问口令（2026-10-28 加，同日又调整过一轮）
       #
       #   背景：访问口令原本只从仓库 Secret 读。Secret 只能在 GitHub 网页上
       #   手动添加（Settings → Security → Secrets and variables → Actions），
       #   入口很深、很多人找不到，于是经常就这么裸跑 —— 公网上任何人拿到
-      #   链接都能进后台改数据。
+      #   链接都能进后台改你的数据。
       #
-      #   现在的逻辑：
-      #     · 配了 ACCESS_PWD Secret → 用它（你自己定的口令，稳定不变）
-      #     · 没配 → **自动生成一个随机强口令**，写进本次运行的任务摘要
-      #     · 两种情况都不是「完全公开」
+      #   ★ 优先级（2026-10-28 调整）：
+      #     1. 仓库 Secret ACCESS_PWD  —— 最安全（不在仓库里），你自定
+      #     2. 仓库文件 access-pwd.txt  —— **固定口令，好记**
+      #        为什么加这一层：随机口令每次部署都变，谁都记不住。
+      #        面试演示要的是「我知道这个口令」，不是「口令多难猜」。
+      #        （仓库本来就是公开的，地址和口令本来就都写在里面，
+      #          固定口令并不会比随机口令更不安全）
+      #     3. 自动生成 16 位随机口令  —— 兜底，绝不裸奔
       #
-      #   这样即使一次 Secret 都没配，公网地址也是有口令保护的，
-      #   口令直接显示在 Actions 摘要里。
+      #   三条路都不是「完全公开」。
       - name: 决定访问口令
         env:
           SECRET_ACCESS_PWD: ${{ secrets.ACCESS_PWD }}
@@ -84,14 +87,29 @@ jobs:
             echo "ACCESS_PWD=$SECRET_ACCESS_PWD" >> $GITHUB_ENV
             echo "PWD_SOURCE=仓库 Secret（你自己设的）" >> $GITHUB_ENV
             echo "✅ 使用仓库 Secret 里的访问口令"
+          elif [ -f access-pwd.txt ] && [ -s access-pwd.txt ]; then
+            # ★ 从仓库文件读固定口令。
+            #   去掉首尾空白和可能的引号（有人会写成 "parking2026"）。
+            PWD=$(tr -d "\r\n" < access-pwd.txt | sed -e "s/^[[:space:]]*//" -e "s/[[:space:]]*$//" -e "s/^\"//" -e "s/\"$//" -e "s/^'//" -e "s/'$//")
+            if [ -n "$PWD" ]; then
+              echo "ACCESS_PWD=$PWD" >> $GITHUB_ENV
+              echo "PWD_SOURCE=仓库文件 access-pwd.txt（固定口令）" >> $GITHUB_ENV
+              echo "✅ 使用 access-pwd.txt 里的固定口令：$PWD"
+            else
+              # 文件是空的，当作没配
+              PWD=$(head -c 12 /dev/urandom | base64 | tr -dc "A-Za-z0-9" | head -c 16)
+              echo "ACCESS_PWD=$PWD" >> $GITHUB_ENV
+              echo "PWD_SOURCE=本次运行自动生成的随机口令" >> $GITHUB_ENV
+              echo "⚠️ access-pwd.txt 是空的，本次自动生成随机口令"
+            fi
           else
-            # 没有 Secret：生成一个 16 位随机口令
-            # 用 openssl 而不是 $RANDOM —— 后者每台机器的种子不同，
+            # 没有 Secret 也没有固定口令文件：生成一个 16 位随机口令
+            # 用 /dev/urandom 而不是 $RANDOM —— 后者每台机器的种子不同，
             # 但强度不够。16 位 base64 约 96 bit 熵，暴力猜不动。
-            PWD=$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16)
+            PWD=$(head -c 12 /dev/urandom | base64 | tr -dc "A-Za-z0-9" | head -c 16)
             echo "ACCESS_PWD=$PWD" >> $GITHUB_ENV
             echo "PWD_SOURCE=本次运行自动生成的随机口令" >> $GITHUB_ENV
-            echo "⚠️ 未配置 ACCESS_PWD Secret，本次自动生成随机口令"
+            echo "⚠️ 未配置 ACCESS_PWD Secret 和 access-pwd.txt，本次自动生成随机口令"
           fi
 
           # SECRET_KEY 同理：没配就生成一个随机的（app.py 也会自己兜底，
@@ -100,7 +118,7 @@ jobs:
             echo "SECRET_KEY=$SECRET_SECRET_KEY" >> $GITHUB_ENV
             echo "✅ 使用仓库 Secret 里的 session 密钥"
           else
-            KEY=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)
+            KEY=$(head -c 32 /dev/urandom | base64 | tr -dc "A-Za-z0-9" | head -c 48)
             echo "SECRET_KEY=$KEY" >> $GITHUB_ENV
             echo "⚠️ 未配置 SECRET_KEY Secret，本次自动生成随机密钥"
           fi
