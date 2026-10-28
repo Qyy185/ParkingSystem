@@ -123,20 +123,62 @@ jobs:
       # ★ 把地址同步到仓库的 tunnel-url 文件。
       #   这样不用登录 Actions 页面也能拿到地址 —— 命令行、脚本、
       #   别人的手机扫码都能用。文件每次运行会覆盖。
+      #
+      #   用 Contents API 而不是 `git push`：
+      #   API 只需要 GITHUB_TOKEN，不依赖 checkout 时配置的 git 凭证，
+      #   也不会因为分支保护而失败。
       - name: 同步地址到仓库
+        # ★ continue-on-error：这一步失败（权限、API 限流等）
+        #   **不能影响服务上线**。地址在 Actions 摘要里照样能看到，
+        #   同步到仓库只是多一个不用登录就能拿地址的途径。
         if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -n "$TUNNEL_URL" ]; then
-            echo "$TUNNEL_URL" > tunnel-url.txt
-            git config user.name  "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add tunnel-url.txt
-            git commit -m "chore: 更新公网访问地址" || echo "（无变化，跳过提交）"
-            git push
+          # ★ TUNNEL_URL 是上一步用 `echo "TUNNEL_URL=..." >> $GITHUB_ENV` 写的，
+          #   在这个 step 里已经是普通 shell 变量，直接用 $TUNNEL_URL 即可。
+          #   （不要写 ${{ env.TUNNEL_URL }} —— 那是求值时的上下文，取不到运行时值）
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "⚠️ 没有拿到 TUNNEL_URL，跳过同步"
+            exit 0
+          fi
+          echo "$TUNNEL_URL" > tunnel-url.txt
+
+          # 先查文件当前 sha（不存在则为空）
+          EXISTING=$(curl -sf -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/tunnel-url.txt" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || echo "")
+
+          # ★ 用独立脚本文件而不是内联 heredoc ——
+          #   YAML 块标量里的多行 Python 缩进很容易踩坑，
+          #   而且内联脚本出错时日志不好读。
+          export EXISTING_SHA="$EXISTING"
+          export TARGET_URL="$TUNNEL_URL"
+          PAYLOAD=$(python3 tools/sync_tunnel_url.py)
+
+          HTTP=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X PUT \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/tunnel-url.txt" \
+            -d "$PAYLOAD")
+
+          if [ "$HTTP" = "200" ] || [ "$HTTP" = "201" ]; then
             echo "✅ 地址已同步到 tunnel-url.txt"
+            echo "   公网地址: $TUNNEL_URL"
+          else
+            echo "❌ 同步失败 HTTP $HTTP"
+            cat /tmp/resp.json
+            echo ""
+            echo "（不影响服务运行，地址仍可在 Actions 摘要里看到）"
           fi
 
       - name: 保持服务在线
+        # 同理：保活失败（比如超过时长被平台掐掉）不该让 run 变红，
+        #   因为服务在保活期间是正常可用的。
+        continue-on-error: true
         run: |
           MINUTES=${{ github.event.inputs.minutes || '300' }}
           # GitHub Actions 单个 job 最多 6 小时（360 分钟），留 10 分钟余量给清理
