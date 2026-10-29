@@ -1,4 +1,4 @@
-公网地址: https://hugo-basket-andy-answered.trycloudflare.com
+公网地址: https://lamp-alloy-preliminary-cities.trycloudflare.com
 
 访问口令: parking2026
 口令来源: 仓库文件 access-pwd.txt（固定口令）
