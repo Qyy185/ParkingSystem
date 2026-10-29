@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>地下停车场 · 优惠券</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap wide">
+  <header class="head">
+    <h1>优惠券</h1>
+    <p class="sub">发放折扣码 → 车主缴费时输入 → 自动抵扣</p>
+  </header>
+
+  <div class="nav-links">
+    <span class="nav-link role-badge admin">管理员</span>
+    <a class="nav-link" href="{{ url_for('admin') }}">后台首页</a>
+    <a class="nav-link" href="{{ url_for('report') }}">收入报表</a>
+    <a class="nav-link" href="{{ url_for('accounts') }}">账户管理</a>
+    <a class="nav-link" href="{{ url_for('remind_page') }}">催缴</a>
+    <a class="nav-link" href="{{ url_for('mocks_page') }}">模拟清单</a>
+    <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
+    <a class="nav-link" href="{{ url_for('logout') }}">退出</a>
+  </div>
+
+  {% if msg %}
+  <div class="alert alert-err">{{ msg }}</div>
+  {% endif %}
+  {% if ok_msg %}
+  <div class="alert alert-ok">{{ ok_msg }}</div>
+  {% endif %}
+
+  <section class="card">
+    <div class="stat-row cols-4">
+      <div class="stat"><span class="num">{{ stats.total }}</span><span class="lbl">已发券</span></div>
+      <div class="stat"><span class="num free">{{ stats.active }}</span><span class="lbl">生效中</span></div>
+      <div class="stat"><span class="num busy">{{ stats.usedCount }}</span><span class="lbl">已核销次数</span></div>
+      <div class="stat"><span class="num money">{{ stats.given }}</span><span class="lbl">让利合计(元)</span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>发放新券</h2>
+    <form method="post" action="{{ url_for('coupons_create') }}">
+      <div class="inline-form">
+        <input class="input" type="text" name="code" placeholder="优惠码，如 NEW2026"
+               maxlength="20" autocomplete="off" required>
+        <input class="input" type="number" name="discount" placeholder="面额(元)"
+               min="1" max="999" required>
+        <input class="input" type="number" name="maxUses" placeholder="可用次数"
+               min="1" max="9999" value="10">
+        <input class="input" type="number" name="validDays" placeholder="有效天数"
+               min="1" max="3650" value="30">
+        <button class="btn primary" type="submit">发放</button>
+      </div>
+    </form>
+    <p class="tip">
+      优惠码大小写不敏感（NEW2026 和 new2026 是同一张）。<br>
+      一笔停车费只能用一张券；每辆车每张码限用一次；抵扣额不会超过停车费本身。
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>券列表</h2>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>优惠码</th><th>面额</th><th>使用情况</th><th>有效期</th>
+            <th>状态</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if coupons %}
+            {% for cp in coupons %}
+            <tr>
+              <td class="plate" data-label="优惠码">{{ cp.code }}</td>
+              <td data-label="面额">{{ cp.discount }} 元</td>
+              <td data-label="使用情况">
+                {{ cp.usedCount }} / {{ cp.maxUses }} 次
+                {% if cp.usedBy %}
+                <br><span class="grace-tip">
+                  {% for u in cp.usedBy %}{{ u.plate }}（抵 {{ u.discount }} 元）{% if not loop.last %}、{% endif %}{% endfor %}
+                </span>
+                {% endif %}
+              </td>
+              <td data-label="有效期">{{ cp.expiresAt | fmt_date }}</td>
+              <td data-label="状态">
+                {% set st = '生效中' if cp.active and (cp.usedCount or 0) < (cp.maxUses or 0) else ('已领完' if cp.active else ('已停用' if not cp.active else '已过期')) %}
+                <span class="kind-badge {{ 'autopay' if st == '生效中' else 'temp' }}">{{ st }}</span>
+              </td>
+              <td class="actions" data-label="操作">
+                <form method="post" action="{{ url_for('coupons_toggle') }}">
+                  <input type="hidden" name="code" value="{{ cp.code }}">
+                  <input type="hidden" name="enable" value="{{ '1' if not cp.active else '0' }}">
+                  <button class="btn" type="submit">{{ '恢复' if not cp.active else '停用' }}</button>
+                </form>
+                {% if not cp.usedCount %}
+                <form method="post" action="{{ url_for('coupons_delete') }}"
+                      onsubmit="return confirm('确定删除优惠码 {{ cp.code }}？');">
+                  <input type="hidden" name="code" value="{{ cp.code }}">
+                  <button class="btn" type="submit">删除</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="6" class="tip">还没有发放过优惠券</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    <p class="tip">被用过的券不能删 —— 使用记录要留着对账。不想让车主再用就「停用」。</p>
+  </section>
+
+  <footer class="foot">
+    <a href="{{ url_for('admin') }}">← 返回后台</a>
+    ·
+    <a href="{{ url_for('report') }}">收入报表</a>
+  </footer>
+</div>
+</body>
+</html>

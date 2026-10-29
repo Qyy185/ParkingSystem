@@ -332,7 +332,13 @@ def handle_exit(plate_no):
 #   ⚠️ 删之前要把余额记进流水。账户一删余额就没了，
 #     不留痕的话这笔钱就凭空消失了。
 # ============================================================
-def handle_pay(plate_no):
+def handle_pay(plate_no, method="", discount=0):
+    """缴费放行（v0.4.4 起支持记录支付方式和优惠抵扣）。
+
+    参数：
+      method    支付方式标签（"微信支付" / "无感支付" 等），写进流水供报表统计
+      discount  优惠券抵扣金额（元），写进流水供报表统计让利
+    """
     normalized = plate.normalize(plate_no)
     spots, spot = find_in_field_with_spots(normalized)
     if spot is None:
@@ -346,7 +352,8 @@ def handle_pay(plate_no):
     spot["channel"] = None
     store.write_all(spots)
     store.add_log({"type": "pay", "plate": normalized, "spot": spot["id"],
-                   "minutes": minutes, "fee": fee, "channel": channel})
+                   "minutes": minutes, "fee": fee, "channel": channel,
+                   "method": method, "discount": int(discount or 0)})
 
     # 临停车出场 → 删掉它的临时账号（会员账户不动）
     temp_removed = None

@@ -37,7 +37,11 @@
       <div class="pay-meta">
         车牌号 <strong>{{ plate }}</strong><br>
         {% if subtitle %}{{ subtitle }}<br>{% endif %}
+        {% if autopay_selected %}
+        本次充值后将开通<b>无感支付</b>：以后出场余额够时自动扣费放行，不用再扫码。
+        {% else %}
         支付后立即生效
+        {% endif %}
       </div>
     </div>
 
@@ -62,6 +66,19 @@
       <div class="row">
         <button class="btn primary grow" type="submit">确认支付 {{ amount }} 元</button>
       </div>
+
+      {% if kind == 'parking' %}
+      <!-- ★ v0.4.4：优惠券抵扣。后端提交时会重新校验，
+           改表单伪造抵扣额是没用的 —— 抵扣额永远以后端算的为准。 -->
+      <div class="coupon-row">
+        <label class="coupon-label" for="coupon">优惠码</label>
+        <input class="input" type="text" name="coupon" id="coupon"
+               placeholder="有优惠码就填（选填）" maxlength="20" autocomplete="off">
+      </div>
+      <p class="tip" style="text-align: left; padding-top: 0;">
+        优惠码由停车场管理方发放，一笔停车费只能用一张，每辆车每张码限用一次。
+      </p>
+      {% endif %}
     </form>
 
     <div class="row">

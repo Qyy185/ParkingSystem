@@ -23,7 +23,14 @@ import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PORT = 3000
+# ★ v0.4.5：测试全部打 127.0.0.1，绝不能走系统/环境变量里的 HTTP 代理 ——
+#   代理转发不了本机端口，全部 502（2026-10-29 踩过：开了代理后 316/353）。
+os.environ["no_proxy"] = "127.0.0.1,localhost"
+os.environ["NO_PROXY"] = "127.0.0.1,localhost"
+# ★ v0.4.5：改用 3100。原来用 3000，本地如果恰好开着开发服务器（双击了 启动.bat），
+#   测试服务器会绑不上端口，请求全部打到**用户的服务器**上，
+#   表现为一大片不相关的断言集体失败（2026-10-29 踩过）。
+PORT = 3100
 ADMIN_PWD = "admin12345"   # 管理端口令（测试用）
 PY = os.path.join(ROOT, ".venv", "Scripts", "python.exe")
 if not os.path.exists(PY):
@@ -31,6 +38,7 @@ if not os.path.exists(PY):
 
 sys.path.insert(0, ROOT)
 import account  # noqa: E402
+import coupon  # noqa: E402
 import notify  # noqa: E402
 import parking  # noqa: E402
 import plate as plate_mod  # noqa: E402
@@ -57,6 +65,7 @@ def reset_data():
     store.write_accounts([])
     store.write_recharges([])
     store.write_notifications([])
+    store.write_coupons([])
 
 
 def make_account(plate_no, kind=account.MONTHLY, holder="测试车主",
@@ -962,6 +971,228 @@ def test_temp_account_still_removed():
 
 
 # ============================================================
+# 优惠券（v0.4.4）
+# ============================================================
+
+def test_coupon_create_and_validate():
+    """发券 + 校验：面额、有效期、次数、重复使用。"""
+    reset_data()
+
+    r = coupon.create("NEW2026", 3, 2, 30)
+    check("发券成功", r.get("ok") is True, r.get("msg", ""))
+    check("优惠码已转大写", r["coupon"]["code"] == "NEW2026")
+    check("有效期约 30 天",
+          abs(r["coupon"]["expiresAt"] - (store.now_ms() + 30 * coupon.DAY))
+          < 5 * 60 * 1000)
+
+    # 重复发码被拦
+    r2 = coupon.create("new2026", 5, 1, 30)
+    check("重复发码被拦（大小写不敏感）", r2.get("ok") is False)
+    check("拦截原因提到已存在", "已存在" in r2.get("msg", ""), r2.get("msg", ""))
+
+    # 非法参数
+    check("面额为 0 被拦", coupon.create("C0", 0, 1, 30).get("ok") is False)
+    check("次数为 0 被拦", coupon.create("C1", 3, 0, 30).get("ok") is False)
+    check("空码被拦", coupon.create("  ", 3, 1, 30).get("ok") is False)
+
+    # 正常校验：抵扣面额
+    v = coupon.validate("new 2026", "黑A12345", 10)
+    check("校验通过（大小写/空格不敏感）", v.get("ok") is True, v.get("msg", ""))
+    check("抵扣额等于面额 3", v.get("discount") == 3, str(v.get("discount")))
+
+    # ★ 抵扣不能超过停车费：50 元的券抵 5 元的费，只抵 5
+    coupon.create("BIG50", 50, 1, 30)
+    v2 = coupon.validate("BIG50", "黑A22222", 5)
+    check("抵扣额不超过费用本身",
+          v2.get("ok") is True and v2.get("discount") == 5, str(v2))
+
+    # 不存在的码
+    check("不存在的码校验失败", coupon.validate("NOPE", "黑A12345", 10).get("ok") is False)
+
+    # 免费时段用不了
+    v3 = coupon.validate("NEW2026", "黑A99999", 0)
+    check("费用为 0 时用不了券", v3.get("ok") is False and "0" in v3.get("msg", ""))
+
+
+def test_coupon_consume_and_limits():
+    """核销：记录留痕、次数用完、同车限一次、过期、停用、删除限制。"""
+    reset_data()
+    coupon.create("LIMIT2", 3, 2, 30)
+
+    # 第一辆车核销
+    v = coupon.validate("LIMIT2", "黑A11111", 10)
+    c = coupon.consume("LIMIT2", "黑A11111", 10, v["discount"])
+    check("核销成功", c.get("ok") is True, c.get("msg", ""))
+    cp = coupon.find("LIMIT2")
+    check("使用次数 +1", cp["usedCount"] == 1, str(cp["usedCount"]))
+    check("使用记录含车牌", cp["usedBy"][0]["plate"] == "黑A11111")
+    check("使用记录含抵扣额", cp["usedBy"][0]["discount"] == 3)
+
+    # ★ 同一辆车不能重复用同一张码
+    v2 = coupon.validate("LIMIT2", "黑A11111", 10)
+    check("同一辆车第二次用被拦", v2.get("ok") is False and "用过" in v2.get("msg", ""),
+          v2.get("msg", ""))
+
+    # 第二辆车还能用（maxUses=2）
+    check("第二辆车能用", coupon.validate("LIMIT2", "黑A22222", 10).get("ok") is True)
+    coupon.consume("LIMIT2", "黑A22222", 10, 3)
+
+    # 第三辆车 → 已领完
+    v3 = coupon.validate("LIMIT2", "黑A33333", 10)
+    check("次数用完后被拦", v3.get("ok") is False and "领完" in v3.get("msg", ""),
+          v3.get("msg", ""))
+    check("状态是已领完", coupon.status(coupon.find("LIMIT2")) == "已领完")
+
+    # ★ 用过的券不能删（对账）
+    r = coupon.remove("LIMIT2")
+    check("用过的券不能删", r.get("ok") is False and "对账" in r.get("msg", ""),
+          r.get("msg", ""))
+
+    # 没用过的券可以删
+    coupon.create("DELETEME", 5, 1, 30)
+    check("没用过的券可以删", coupon.remove("DELETEME").get("ok") is True)
+
+    # 过期
+    coupon.create("OLD", 3, 5, 30)
+    coupons = store.read_coupons()
+    for c in coupons:
+        if c["code"] == "OLD":
+            c["expiresAt"] = store.now_ms() - coupon.DAY
+    store.write_coupons(coupons)
+    v4 = coupon.validate("OLD", "黑A44444", 10)
+    check("过期券校验失败", v4.get("ok") is False and "过期" in v4.get("msg", ""),
+          v4.get("msg", ""))
+
+    # 停用
+    coupon.create("STOP", 3, 5, 30)
+    coupon.set_active("STOP", False)
+    v5 = coupon.validate("STOP", "黑A55555", 10)
+    check("停用券校验失败", v5.get("ok") is False and "停用" in v5.get("msg", ""),
+          v5.get("msg", ""))
+    check("状态是已停用", coupon.status(coupon.find("STOP")) == "已停用")
+
+    # 统计口径
+    s = coupon.stats()
+    check("统计核销次数为 2", s["usedCount"] == 2, str(s))
+    check("统计让利合计为 6", s["given"] == 6, str(s))
+
+
+def test_pay_log_with_method_and_discount():
+    """缴费流水要记支付方式和优惠抵扣（报表的数据来源）。"""
+    reset_data()
+    parking.handle_entry("黑A12345")
+    # 人为把入场时间拨回 50 分钟前，费用 = 5 元
+    spots = store.read_all()
+    for s in spots:
+        if s.get("plate") == "黑A12345":
+            s["entryTime"] = store.now_ms() - 50 * 60 * 1000
+    store.write_all(spots)
+
+    p = parking.handle_pay("黑A12345", method="微信支付", discount=3)
+    check("缴费成功", p.get("ok") is True)
+    logs = [l for l in store.read_logs() if l.get("type") == "pay"]
+    check("缴费流水有 1 条", len(logs) == 1)
+    check("流水记了支付方式", logs[0].get("method") == "微信支付", str(logs[0].get("method")))
+    check("流水记了优惠抵扣 3", logs[0].get("discount") == 3, str(logs[0].get("discount")))
+    check("折前金额仍是 5", logs[0].get("fee") == 5, str(logs[0].get("fee")))
+
+
+# ============================================================
+# 无感支付（v0.4.4）
+# ============================================================
+
+def test_autopay_rules():
+    """autopay 开关与扣款条件。"""
+    reset_data()
+    account.register("黑A11111", account.MONTHLY, "测试")
+    check("默认未开通无感支付",
+          account.find_by_plate("黑A11111").get("autopay") is False)
+
+    # 临时账号不能开
+    parking.handle_entry("黑A55555")
+    r = account.set_autopay("黑A55555", True)
+    check("临时账号不能开通无感支付", r.get("ok") is False, r.get("msg", ""))
+
+    # 开通
+    r2 = account.set_autopay("黑A11111", True)
+    check("会员账户可开通", r2.get("ok") is True)
+    check("开关状态已保存",
+          account.find_by_plate("黑A11111").get("autopay") is True)
+
+    # 关闭
+    account.set_autopay("黑A11111", False)
+    check("可关闭无感支付",
+          account.find_by_plate("黑A11111").get("autopay") is False)
+    account.set_autopay("黑A11111", True)
+
+    # ★ 扣款三条件：开了开关、余额够、费用大于 0
+    ok, _ = account.autopay_ready("黑A11111", 0)
+    check("费用为 0 不走无感扣款", ok is False)
+    ok, _ = account.autopay_ready("黑A11111", 10)
+    check("余额不够不走无感扣款", ok is False)
+
+    # 充值带上 autopay 参数
+    r3 = account.recharge("黑A11111", account.MONTHLY, 1, autopay=True)
+    check("充值可顺带开通无感支付",
+          r3.get("ok") is True and r3["account"]["autopay"] is True)
+    ok, _ = account.autopay_ready("黑A11111", 10)
+    check("余额 300 够扣 10 元 → 可以无感", ok is True)
+
+    # 没开开关的车不行
+    account.register("黑A22222", account.MONTHLY, "测试")
+    account.recharge("黑A22222", account.MONTHLY, 1)
+    ok, _ = account.autopay_ready("黑A22222", 10)
+    check("没开开关不能无感扣款", ok is False)
+
+    # 没账户的车不行
+    ok, _ = account.autopay_ready("黑Z99999", 10)
+    check("没账户不能无感扣款", ok is False)
+
+
+def test_autopay_exit_flow():
+    """★ 无感支付出场闭环：过期会员按临停计费，出场自动扣余额放行。"""
+    reset_data()
+    make_account("黑A11111", days_left=-5)      # 过期但在宽限期内
+    account.set_autopay("黑A11111", True)
+    accounts = store.read_accounts()
+    for a in accounts:
+        if a.get("plate") == "黑A11111":
+            a["balance"] = 100
+    store.write_accounts(accounts)
+
+    r = parking.handle_entry("黑A11111")
+    check("过期会员入场走临停通道", r.get("channel") == "temp", str(r.get("channel")))
+
+    # 人为把入场时间拨回 50 分钟前 → 费用 5 元
+    spots = store.read_all()
+    for s in spots:
+        if s.get("plate") == "黑A11111":
+            s["entryTime"] = store.now_ms() - 50 * 60 * 1000
+    store.write_all(spots)
+
+    e = parking.handle_exit("黑A11111")
+    check("出场算出费用 5 元", e.get("fee") == 5, str(e.get("fee")))
+
+    ok, _ = account.autopay_ready("黑A11111", e["fee"])
+    check("满足无感扣款条件", ok is True)
+
+    # 模拟 /exit 路径 2 的动作：先扣款再放行（顺序不能反）
+    d = account.deduct("黑A11111", e["fee"])
+    check("扣款成功", d.get("ok") is True and d.get("balance") == 95, str(d))
+    p = parking.handle_pay("黑A11111", method="无感支付")
+    check("放行成功", p.get("ok") is True)
+
+    check("车位已释放",
+          all(s.get("status") != "occupied" for s in store.read_all()))
+    acc = account.find_by_plate("黑A11111")
+    check("宽限期内账户被保留", acc is not None)
+    check("扣款后余额 95", acc is not None and acc.get("balance") == 95,
+          str(acc and acc.get("balance")))
+    logs = [l for l in store.read_logs() if l.get("type") == "pay"]
+    check("流水记了无感支付方式", logs and logs[0].get("method") == "无感支付")
+
+
+# ============================================================
 # 访问口令保护（v0.4）
 # ============================================================
 
@@ -1246,11 +1477,40 @@ def test_http():
     #   否则管理端页面（/accounts、/remind）全是 302，测试没法跑。
     env = dict(os.environ)
     env["ADMIN_PWD"] = ADMIN_PWD
+    # ★ v0.4.5：app.py 会回退读项目根的 access-pwd.txt，
+    #   显式设空字符串屏蔽掉，让车主端保持无口令，测试才能直接访问。
+    env["ACCESS_PWD"] = ""
+    # ★ v0.4.5：PORT 必须显式传！app.py 默认绑 3000，
+    #   本地开着开发服务器时绑不上（2026-10-29 踩过）。
+    env["PORT"] = str(PORT)
     proc = subprocess.Popen(
         [PY, os.path.join(ROOT, "app.py")],
         cwd=ROOT, stdout=log_file, stderr=subprocess.STDOUT, env=env,
     )
-    time.sleep(2.5)
+    time.sleep(1)
+
+    # ★ v0.4.5：不猜「睡几秒够」，直接轮询端口直到就绪（最多 20 秒）。
+    #   之前固定 sleep 2.5s，冷启动慢一点服务器还没监听，测试就开始发请求，
+    #   全部 10061 连接拒绝（2026-10-29 踩过）。
+    import socket as _socket
+    _deadline = time.time() + 20
+    while True:
+        if proc.poll() is not None:
+            log_file.close()
+            print("!!! 测试服务器启动失败（退出码 %d），日志：" % proc.returncode)
+            with open(log_path, encoding="utf-8", errors="replace") as f:
+                print(f.read()[-2000:])
+            sys.exit(1)
+        try:
+            with _socket.create_connection(("127.0.0.1", PORT), timeout=1):
+                break
+        except OSError:
+            if time.time() > _deadline:
+                log_file.close()
+                print("!!! 等了 20 秒端口 %d 还没就绪，放弃。" % PORT)
+                proc.terminate()
+                sys.exit(1)
+            time.sleep(0.3)
 
     try:
         # ★ 先用管理员口令登录，后面所有请求都带这个 session
@@ -1427,6 +1687,140 @@ def test_http():
         # 25. 车主端有跳充值页的入口
         status, text = get("/")
         check("车主端有充值入口", 'href="/recharge"' in text)
+
+        # ====================================================
+        # 25.5 收入报表 / 优惠券 / 无感支付（v0.4.4）
+        # ====================================================
+        import app as _appmod
+        check("★ /coupons 属于管理端路径", _appmod.is_admin_path("/coupons"))
+        check("★ /report 属于管理端路径", _appmod.is_admin_path("/report"))
+        check("★ /coupons 子路径也受保护", _appmod.is_admin_path("/coupons/create"))
+
+        # ---- 收入报表 ----
+        status, text = get("/report")
+        check("GET /report 200", status == 200, "status=%d" % status)
+        check("报表页含统计卡", "今日实收" in text)
+        check("报表页含近 7 天切换", "近 7 天" in text)
+        status, text = get("/report?days=30")
+        check("报表支持 30 天区间", "近 30 天" in text)
+        check("报表含明细表", "优惠让利" in text and "当日实收" in text)
+
+        # ---- 优惠券管理 ----
+        status, text = get("/coupons")
+        check("GET /coupons 200", status == 200, "status=%d" % status)
+        check("优惠券页含发券表单", 'action="/coupons/create"' in text)
+
+        status, url, text = post("/coupons/create",
+                                  {"code": "TEST10", "discount": "3",
+                                   "maxUses": "10", "validDays": "30"})
+        check("POST /coupons/create 发券成功",
+              status == 200 and "ok=" in url, url)
+        status, text = get("/coupons")
+        check("券列表能看到 TEST10", "TEST10" in text)
+
+        status, url, text = post("/coupons/toggle",
+                                  {"code": "TEST10", "enable": "0"})
+        check("停用券成功", status == 200 and "ok=" in url, url)
+        status, text = get("/coupons")
+        check("列表显示已停用", "已停用" in text)
+        post("/coupons/toggle", {"code": "TEST10", "enable": "1"})
+
+        # ---- 优惠券 + 缴费闭环 ----
+        reset_data()
+        coupon.create("TEST10", 3, 10, 30)
+        parking.handle_entry("黑A12345")
+        spots = store.read_all()
+        for s in spots:
+            if s.get("plate") == "黑A12345":
+                s["entryTime"] = store.now_ms() - 50 * 60 * 1000
+        store.write_all(spots)
+
+        # 出场 → 进收银台（费用 5 元 > 0，无账户，走路径 3）
+        status, url, text = post("/exit", {"plate": "黑A12345"})
+        check("临停出场跳到收银台", "/pay/confirm" in url, url)
+        check("收银台显示费用 5 元", "5" in text)
+        check("收银台有优惠码输入框", 'name="coupon"' in text)
+
+        # 用优惠码支付 → 抵扣 3 元，实收 2 元
+        # ★ URL 参数里的空格是 + 号，要用 unquote_plus 还原
+        status, url, text = post("/pay/confirm?kind=parking",
+                                  {"kind": "parking", "method": "wechat",
+                                   "coupon": "test10"})
+        ok_text = urllib.parse.unquote_plus(url)
+        check("用优惠码缴费成功", status == 200 and "ok_msg=" in url, ok_text[:120])
+        check("提示含抵扣金额", "抵扣 3 元" in ok_text, ok_text[:150])
+        cp = coupon.find("TEST10")
+        check("券被核销 1 次", cp is not None and cp["usedCount"] == 1,
+              str(cp and cp["usedCount"]))
+        pay_logs = [l for l in store.read_logs() if l.get("type") == "pay"]
+        check("流水记了 discount 3",
+              pay_logs and pay_logs[0].get("discount") == 3)
+        check("流水记了微信支付", pay_logs and pay_logs[0].get("method") == "微信支付")
+
+        # 报表能读出优惠让利
+        status, text = get("/report")
+        check("报表显示优惠让利 3", "−3 元" in text or "-3 元" in text, "")
+
+        # 假优惠码被拦
+        parking.handle_entry("黑A55555")
+        spots = store.read_all()
+        for s in spots:
+            if s.get("plate") == "黑A55555":
+                s["entryTime"] = store.now_ms() - 50 * 60 * 1000
+        store.write_all(spots)
+        post("/exit", {"plate": "黑A55555"})
+        status, url, text = post("/pay/confirm?kind=parking",
+                                  {"kind": "parking", "method": "wechat",
+                                   "coupon": "NOPE999"})
+        check("不存在的优惠码被拦",
+              status == 200 and "msg=" in url and "优惠码" in urllib.parse.unquote(url),
+              urllib.parse.unquote(url)[:120])
+
+        # ---- 无感支付：过期会员余额扣款出场 ----
+        reset_data()
+        account.register("黑A88888", account.MONTHLY, "无感测试")
+        account.set_autopay("黑A88888", True)
+        accounts = store.read_accounts()
+        for a in accounts:
+            if a.get("plate") == "黑A88888":
+                a["balance"] = 100
+                # 拨回 5 天前到期 → 宽限期内，入场按临停计费
+                a["expiresAt"] = store.now_ms() - 5 * account.DAY
+        store.write_accounts(accounts)
+
+        parking.handle_entry("黑A88888")
+        spots = store.read_all()
+        for s in spots:
+            if s.get("plate") == "黑A88888":
+                s["entryTime"] = store.now_ms() - 50 * 60 * 1000
+        store.write_all(spots)
+
+        status, url, text = post("/exit", {"plate": "黑A88888"})
+        ok_text = urllib.parse.unquote_plus(url)
+        check("★ 开了无感支付的出场自动扣款放行",
+              "ok_msg=" in url and "无感支付" in ok_text, ok_text[:150])
+        check("扣款金额 5 元", "扣费 5 元" in ok_text, ok_text[:150])
+        acc = account.find_by_plate("黑A88888")
+        check("余额扣到 95", acc is not None and acc.get("balance") == 95,
+              str(acc and acc.get("balance")))
+        check("账户没被删（宽限期内）", acc is not None)
+        check("车位已释放",
+              all(s.get("status") != "occupied" for s in store.read_all()))
+
+        # ---- 免费时段直接放行（不进收银台）----
+        parking.handle_entry("黑A77777")
+        status, url, text = post("/exit", {"plate": "黑A77777"})
+        ok_text = urllib.parse.unquote_plus(url)
+        check("★ 30 分钟内出场直接放行",
+              "ok_msg=" in url and "免费时段" in ok_text, ok_text[:150])
+        # 只看这辆车的缴费流水：金额必须是 0（别的车留下的流水不算）
+        car_pays = [l for l in store.read_logs()
+                    if l.get("type") == "pay" and l.get("plate") == "黑A77777"]
+        check("免费出场流水金额为 0",
+              car_pays and all((l.get("fee") or 0) == 0 for l in car_pays),
+              str(car_pays))
+        check("车位已释放（免费出场）",
+              all(s.get("status") != "occupied" for s in store.read_all()))
 
         # ====================================================
         # 26. 催缴（v0.3.1）
@@ -1614,6 +2008,15 @@ def main():
     test_valid_member_kept_on_exit()
     test_expired_member_balance_traced()
     test_temp_account_still_removed()
+
+    print("=== 优惠券测试（v0.4.4） ===")
+    test_coupon_create_and_validate()
+    test_coupon_consume_and_limits()
+    test_pay_log_with_method_and_discount()
+
+    print("=== 无感支付测试（v0.4.4） ===")
+    test_autopay_rules()
+    test_autopay_exit_flow()
 
     print("=== 公网部署配置测试（v0.4） ===")
     test_deploy_config()

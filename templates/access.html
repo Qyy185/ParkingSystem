@@ -24,8 +24,17 @@
     <div class="alert alert-err">{{ error }}</div>
     {% endif %}
 
+    {# ★ v0.4.5：演示项目，口令直接印出来，省得演示时翻笔记 #}
+    {% if role == 'admin' and demo_admin_pwd %}
+    <div class="pwd-hint">演示口令：<code>{{ demo_admin_pwd }}</code></div>
+    {% elif role != 'admin' and demo_owner_pwd %}
+    <div class="pwd-hint">演示口令：<code>{{ demo_owner_pwd }}</code></div>
+    {% endif %}
+
     <form method="post" action="{{ url_for('access_page', role=role) }}">
       <input type="hidden" name="role" value="{{ role }}">
+      {# ★ v0.4.5：登录成功后回到用户本来要去的页面（可能是 /accounts 等） #}
+      <input type="hidden" name="next" value="{{ next or '' }}">
       <div class="row" style="margin-bottom: 12px;">
         <input class="input" type="password" name="pwd"
                placeholder="{{ '管理员口令' if role == 'admin' else '访问口令' }}"

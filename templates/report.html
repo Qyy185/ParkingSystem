@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>地下停车场 · 收入报表</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="wrap wide">
+  <header class="head">
+    <h1>收入报表</h1>
+    <p class="sub">按天统计临停收入 / 充值收入 / 优惠让利</p>
+  </header>
+
+  <div class="nav-links">
+    <span class="nav-link role-badge admin">管理员</span>
+    <a class="nav-link" href="{{ url_for('admin') }}">后台首页</a>
+    <a class="nav-link" href="{{ url_for('accounts') }}">账户管理</a>
+    <a class="nav-link" href="{{ url_for('coupons_page') }}">优惠券</a>
+    <a class="nav-link" href="{{ url_for('remind_page') }}">催缴</a>
+    <a class="nav-link" href="{{ url_for('mocks_page') }}">模拟清单</a>
+    <a class="nav-link" href="{{ url_for('index') }}">车主端</a>
+    <a class="nav-link" href="{{ url_for('logout') }}">退出</a>
+  </div>
+
+  <section class="card">
+    <div class="stat-row cols-4">
+      <div class="stat"><span class="num money">{{ summary.today }}</span><span class="lbl">今日实收(元)</span></div>
+      <div class="stat"><span class="num">{{ summary.allParking }}</span><span class="lbl">累计临停(元)</span></div>
+      <div class="stat"><span class="num">{{ summary.allRecharge }}</span><span class="lbl">累计充值(元)</span></div>
+      <div class="stat"><span class="num busy">{{ summary.allDiscount }}</span><span class="lbl">累计让利(元)</span></div>
+    </div>
+    <p class="tip">
+      实收 = 临停折前金额 − 优惠让利 + 充值金额。临停折前金额记在缴费流水里，
+      让利部分单独列出 —— 对账时两条线都看得见。
+    </p>
+  </section>
+
+  <!-- ★ 纯 CSS 柱状图：每行一条横柱，宽度按当日收入占区间最大值的比例 -->
+  <section class="card">
+    <h2>每日收入
+      <span class="report-range">
+        <a class="btn {{ 'btn-on' if days == 7 else '' }}" href="{{ url_for('report', days=7) }}">近 7 天</a>
+        <a class="btn {{ 'btn-on' if days == 30 else '' }}" href="{{ url_for('report', days=30) }}">近 30 天</a>
+      </span>
+    </h2>
+    {% if max_total %}
+    <div class="chart">
+      {% for r in rows %}
+      <div class="chart-row">
+        <span class="chart-date">{{ r.date }}{% if r.isToday %}<em class="today-tag">今天</em>{% endif %}</span>
+        <span class="chart-bar-track">
+          <span class="chart-bar" style="width: {{ (r.total * 100 / max_total) | round(1) }}%;"></span>
+        </span>
+        <span class="chart-num">{{ r.total }} 元</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="tip">暂无数据</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>明细</h2>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>日期</th><th>临停折前</th><th>优惠让利</th><th>临停实收</th>
+            <th>临停笔数</th><th>充值收入</th><th>充值笔数</th><th>当日实收</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr class="{{ 'row-today' if r.isToday }}">
+            <td data-label="日期">{{ r.date }}{% if r.isToday %} <em class="today-tag">今天</em>{% endif %}</td>
+            <td data-label="临停折前">{{ r.parking }} 元</td>
+            <td data-label="优惠让利">{{ '−' if r.discount else '' }}{{ r.discount }} 元</td>
+            <td data-label="临停实收">{{ r.parkingPaid }} 元</td>
+            <td data-label="临停笔数">{{ r.parkingCount }}</td>
+            <td data-label="充值收入">{{ r.recharge }} 元</td>
+            <td data-label="充值笔数">{{ r.rechargeCount }}</td>
+            <td data-label="当日实收"><strong>{{ r.total }}</strong> 元</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <a href="{{ url_for('admin') }}">← 返回后台</a>
+    ·
+    <a href="{{ url_for('coupons_page') }}">优惠券</a>
+  </footer>
+</div>
+</body>
+</html>

@@ -282,7 +282,7 @@ def classify(plate_no):
 
 
 def register(plate_no, kind=MONTHLY, holder="", note="", balance=0, expires_at=0,
-             phone_no="", wechat_id=""):
+             phone_no="", wechat_id="", autopay=False):
     """登记一个**长期会员账户**（月租 / 年租）。
 
     只能登记会员。临停账号是入场自动建的，不走这里。
@@ -329,6 +329,7 @@ def register(plate_no, kind=MONTHLY, holder="", note="", balance=0, expires_at=0
         "expiresAt": int(expires_at or 0),  # 到期时间戳，0 = 永久有效
         "phone": phone_no.strip(),         # 手机号（催缴用，v0.3.1）
         "wechat": wechat_id.strip(),       # 微信号（催缴用，v0.3.1）
+        "autopay": bool(autopay),          # 无感支付（v0.4.4）：余额够时出场自动扣费放行
         "reminded": {},                    # 已发过的催缴档位（v0.3.1）
         "createdAt": store.now_ms(),
     }
@@ -449,7 +450,7 @@ def get_option(kind, periods):
     return None
 
 
-def recharge(plate_no, kind, periods):
+def recharge(plate_no, kind, periods, autopay=None):
     """给账户充值（购买套餐）。
 
     做的事：
@@ -457,6 +458,7 @@ def recharge(plate_no, kind, periods):
       2. 账户不存在就自动建一个**会员账户**（充值即开户）
       3. 余额加上套餐价格
       4. 有效期从 `max(现在, 原到期时间)` 往后延
+      5. autopay=True 时开通无感支付（v0.4.4）；None 表示不改变现状
 
     返回 {"ok": True, "account": 账户, "amount": 金额,
           "days": 增加的天数, "expiresAt": 新的到期时间}
@@ -492,6 +494,7 @@ def recharge(plate_no, kind, periods):
             "expiresAt": 0,
             "phone": "",
             "wechat": "",
+            "autopay": False,
             "reminded": {},
             "createdAt": store.now_ms(),
         }
@@ -522,6 +525,10 @@ def recharge(plate_no, kind, periods):
     target["kind"] = kind
     target["balance"] = int(target.get("balance") or 0) + option["price"]
     target["expiresAt"] = new_expires
+    # ★ v0.4.4：充值时勾了「开通无感支付」就打开开关。
+    #   只开不关 —— 想关的话去账户管理页操作，避免误触把别人开好的功能关掉。
+    if autopay:
+        target["autopay"] = True
     # ★ 续费后是新周期，催缴记录要清空。
     #   否则「提前 7 天」这个档位会被认为已经发过，新周期永远不再提醒。
     target["reminded"] = {}
@@ -770,6 +777,46 @@ def available_targets(acc):
     if wechat_id:
         targets.append({"channel": "wechat", "target": wechat_id})
     return targets
+
+
+def set_autopay(plate_no, enabled):
+    """开通 / 关闭无感支付（v0.4.4）。
+
+    无感支付：车辆出场时费用自动从余额扣（余额够才行），跳过收银台。
+    只对长期账户开放 —— 临时账号出场就删，开了也没意义。
+
+    返回 {"ok": True, "account": 账户} 或 {"ok": False, "msg": 原因}
+    """
+    normalized = plate.normalize(plate_no)
+    accounts = store.read_accounts()
+    for acc in accounts:
+        if plate.normalize(acc.get("plate")) == normalized:
+            if acc.get("kind") == TEMPORARY:
+                return {"ok": False, "msg": "临时账号不能开通无感支付"}
+            acc["autopay"] = bool(enabled)
+            store.write_accounts(accounts)
+            return {"ok": True, "account": acc}
+    return {"ok": False, "msg": "这个车牌没有账户"}
+
+
+def autopay_ready(plate_no, amount):
+    """判断这辆车现在能不能走无感支付。
+
+    三个条件缺一不可：
+      1. 有账户，且开了 autopay
+      2. 余额够扣这笔费用
+      3. 费用大于 0（免费的直接放行，用不着扣款）
+
+    返回 (能否, 账户或 None)。
+    """
+    if not amount or amount <= 0:
+        return False, None
+    acc = find_by_plate(plate_no)
+    if acc is None or not acc.get("autopay"):
+        return False, acc
+    if int(acc.get("balance") or 0) < int(amount):
+        return False, acc
+    return True, acc
 
 
 def set_contact(plate_no, phone_no="", wechat_id=""):

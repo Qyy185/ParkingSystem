@@ -379,6 +379,23 @@ check("入场成功", "入场成功" in _t, _t[:200])
 check("入场消息含车位号", "P-" in _t, _t[:200])
 check("★ 入场消息不含分区字样", "A区" not in _t and "B区" not in _t, _t[:200])
 
+# ★ v0.4.4：30 分钟内出场直接放行，不进收银台（免费时段新行为）
+st, url, body = owner3.post("/exit", {"plate": "黑A12345"})
+_t = urllib.parse.unquote(url)
+check("★ 免费时段出场直接放行不进收银台",
+      "/pay/confirm" not in url and "免费时段" in _t, _t[:200])
+spots = parking.get_spots()
+check("★ 免费出场后车位已释放",
+      all(s.get("status") != "occupied" for s in spots))
+
+# 重新入场，把入场时间拨回 50 分钟前 → 费用 5 元，走收银台流程
+st, url, body = owner3.post("/entry", {"plate": "黑A12345", "action": "entry"})
+spots = parking.get_spots()
+for s in spots:
+    if s.get("plate") == "黑A12345":
+        s["entryTime"] = store.now_ms() - 50 * 60 * 1000
+store.write_all(spots)
+
 # 查询费用 → 应该跳确认页
 st, url, body = owner3.post("/exit", {"plate": "黑A12345"})
 check("★ 查询费用跳到模拟支付页", "/pay/confirm" in url, url)

@@ -22,6 +22,7 @@ import time
 from flask import Flask, redirect, render_template, request, session, url_for
 
 import account
+import coupon
 import mocks
 import notify
 import parking
@@ -48,7 +49,26 @@ app.secret_key = _SECRET
 PORT = int(os.environ.get("PORT", "3000"))
 
 # 访问口令：不设就是完全公开。面试演示时设上，防止被人刷数据。
-ACCESS_PWD = os.environ.get("ACCESS_PWD", "").strip()
+# ★ v0.4.5：环境变量没设时，回退读项目根目录的 access-pwd.txt / admin-pwd.txt
+#   （和公网部署的 deploy.yml 同一套优先级：环境变量 > 仓库文件 > 空）。
+#   这样本地双击 启动.bat 也能用和公网一样的口令进管理后台，
+#   而不是管理端被静默关闭、访问 /admin 被一声不吭弹回车主端。
+#   想在本地彻底关闭口令：设环境变量 ACCESS_PWD=""（空字符串）即可，
+#   显式设置会覆盖文件回退。
+def _pwd_from_file(filename):
+    """读项目根目录下的口令文件，读不到或为空返回空串。"""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+if "ACCESS_PWD" in os.environ:
+    ACCESS_PWD = os.environ.get("ACCESS_PWD", "").strip()
+else:
+    ACCESS_PWD = _pwd_from_file("access-pwd.txt")
 
 # ★ 管理员口令（v0.4.2）：车主端和管理后台分成两套权限。
 #   ACCESS_PWD  → 车主端（入场、出场、给自己充值）
@@ -60,7 +80,10 @@ ACCESS_PWD = os.environ.get("ACCESS_PWD", "").strip()
 #
 #   ★ 管理员口令不能为空 —— 宁可让后台进不去，也不能让后台没有保护。
 #     没配 ADMIN_PWD 时，管理端直接关闭（访问会跳回并提示未授权）。
-ADMIN_PWD = os.environ.get("ADMIN_PWD", "").strip()
+if "ADMIN_PWD" in os.environ:
+    ADMIN_PWD = os.environ.get("ADMIN_PWD", "").strip()
+else:
+    ADMIN_PWD = _pwd_from_file("admin-pwd.txt")
 
 # 角色常量
 ROLE_OWNER = "owner"   # 车主
@@ -81,6 +104,11 @@ ADMIN_PATHS = (
     #   （2026-10-28 踩过：新增 /mocks 后忘了加进这个列表，
     #     车主直接访问能打开清单页。）
     "/mocks",
+    # ★ v0.4.4：优惠券管理和收入报表也是管理端。
+    #   发券、改券是运营动作；报表暴露全部门店的营收数字，
+    #   都不该让普通车主看到。（教训同上：新增管理页第一件事先登记这里）
+    "/coupons",
+    "/report",
 )
 
 
@@ -210,17 +238,22 @@ def check_access_password():
     if is_admin_path(request.path):
         if role == ROLE_ADMIN:
             return None
+        # ★ v0.4.5：把用户本来要去的页面带上，登录成功后直接回去，
+        #   不再一律甩到后台首页。
+        nxt = request.path if request.method == "GET" else ""
         if not ADMIN_PWD:
             # 没配管理员口令 → 管理端是关闭的，不是公开的
             return redirect(url_for("access_page",
                                     role=ROLE_ADMIN,
+                                    next=nxt,
                                     err="管理后台未配置管理员口令，已关闭"))
         if role == ROLE_OWNER:
             # 已经以车主身份登录了，明确告诉他「你没权限」
             return redirect(url_for("access_page",
                                     role=ROLE_ADMIN,
+                                    next=nxt,
                                     err="权限不足：管理后台需要管理员口令"))
-        return redirect(url_for("access_page", role=ROLE_ADMIN))
+        return redirect(url_for("access_page", role=ROLE_ADMIN, next=nxt))
 
     # ★ 车主端
     if not ACCESS_PWD:
@@ -253,6 +286,8 @@ def access_page():
 
     if request.method == "POST":
         given = (request.form.get("pwd") or "").strip()
+        # next 可以走 query string 也可以走表单隐藏域
+        nxt = request.args.get("next") or request.form.get("next") or ""
 
         if role == ROLE_ADMIN:
             if not ADMIN_PWD:
@@ -260,7 +295,6 @@ def access_page():
             elif given == ADMIN_PWD:
                 session["role"] = ROLE_ADMIN
                 session["access_ok"] = True
-                nxt = request.args.get("next")
                 return redirect(nxt if nxt and nxt.startswith("/") else url_for("admin"))
             else:
                 error = "管理员口令不对"
@@ -273,7 +307,6 @@ def access_page():
             if given == ACCESS_PWD:
                 session["role"] = ROLE_OWNER
                 session["access_ok"] = True
-                nxt = request.args.get("next")
                 return redirect(nxt if nxt and nxt.startswith("/") else url_for("index"))
             else:
                 error = "访问口令不对"
@@ -284,6 +317,12 @@ def access_page():
         role=role,
         has_owner_pwd=bool(ACCESS_PWD),
         has_admin_pwd=bool(ADMIN_PWD),
+        next=request.args.get("next", ""),
+        # ★ v0.4.5：这是面试演示项目，不是真实运营系统，
+        #   口令直接印在页面上方便演示（手机、投屏都不用翻笔记）。
+        #   ★ 如果哪天真要上线，删掉下面这两行即可，页面自动不显示提示。
+        demo_owner_pwd=ACCESS_PWD,
+        demo_admin_pwd=ADMIN_PWD,
     )
 
 
@@ -407,10 +446,15 @@ def entry():
 
 @app.route("/exit", methods=["POST"])
 def exit():
-    """出场：先算钱，不放行车位。
+    """出场：先算钱，再按情况分流（v0.4.4）。
 
-    ★ v0.4.2：算完钱**不直接放行**，跳到模拟支付确认页。
-      车主在确认页看清楚金额、选支付方式、点「确认支付」才真正出场。
+    三条路：
+      1. 费用 0（免费时段内 / 会员）→ 直接放行，不用进收银台
+      2. 无感支付：账户开了 autopay 且余额够 → 自动扣款放行，跳过收银台
+      3. 其余 → 进模拟收银台，人工确认支付
+
+    ★ 顺序：无感扣款必须发生在 handle_pay **之前** ——
+      handle_pay 会把临时账号删掉（会员账户保留），删完就没地方扣了。
     """
     raw = (request.form.get("plate") or "").strip()
     if not raw:
@@ -420,12 +464,44 @@ def exit():
     if not result.get("ok"):
         return redirect(url_for("index", msg=result.get("msg", "查询失败")))
 
+    fee = result["fee"]
+    channel = result.get("channel", "temp")
+    normalized = plate.normalize(raw)
+
+    # ---- 路径 1：费用为 0，直接放行 ----
+    if fee <= 0:
+        pay_result = parking.handle_pay(normalized, method="免费放行")
+        if not pay_result.get("ok"):
+            return redirect(url_for("index", msg=pay_result.get("msg", "放行失败")))
+        for k in ("pending_fee", "pending_minutes", "pending_channel"):
+            session.pop(k, None)
+        if channel == "member":
+            return redirect(url_for("index", ok_msg="会员车辆出场，车位已释放（本次费用 0 元）"))
+        return redirect(url_for("index", ok_msg="免费时段内出场，车位已释放（本次费用 0 元）"))
+
+    # ---- 路径 2：无感支付（v0.4.4）----
+    # 会员期内车辆费用本来就是 0，走不到这；能走到这的是
+    # 过期会员（宽限期内）或其他开了 autopay 的账户 —— 按临停计费，
+    # 余额够就自动扣，这正是真实系统里「免密扣款，出场秒抬杆」的体验。
+    ready, acc = account.autopay_ready(normalized, fee)
+    if ready:
+        deduct = account.deduct(normalized, fee)
+        if deduct.get("ok"):
+            pay_result = parking.handle_pay(normalized, method="无感支付")
+            if pay_result.get("ok"):
+                for k in ("pending_fee", "pending_minutes", "pending_channel"):
+                    session.pop(k, None)
+                return redirect(url_for(
+                    "index",
+                    ok_msg=f"无感支付成功：已从余额扣费 {fee} 元"
+                           f"（剩余 {deduct['balance']} 元），车位已释放"))
+
+    # ---- 路径 3：进模拟收银台 ----
     # 把待缴费信息带到下一步。用 session 存比用 URL 参数安全。
-    from flask import session
-    session["pending_plate"] = plate.normalize(raw)
+    session["pending_plate"] = normalized
     session["pending_fee"] = result["fee"]
     session["pending_minutes"] = result["minutes"]
-    session["pending_channel"] = result.get("channel", "temp")
+    session["pending_channel"] = channel
     # ★ 跳模拟支付页，而不是直接缴费
     return redirect(url_for("pay_confirm", kind="parking"))
 
@@ -497,6 +573,7 @@ def pay_confirm():
     # ---------------------------------------------------------
     #  取待支付的信息
     # ---------------------------------------------------------
+    autopay_selected = False
     if kind == "recharge":
         plate_no = (session.get("pay_plate") or "").strip()
         pkg_kind = session.get("pay_kind") or ""
@@ -507,6 +584,10 @@ def pay_confirm():
         amount = option["price"]
         title = "会员充值"
         subtitle = option["label"]
+        # v0.4.4：充值时是否勾了「开通无感支付」
+        autopay_selected = bool(session.get("pay_autopay"))
+        if autopay_selected:
+            subtitle += " · 开通无感支付"
     else:
         plate_no = (session.get("pending_plate") or "").strip()
         amount = session.get("pending_fee")
@@ -529,7 +610,10 @@ def pay_confirm():
             if real_option is None or real_option["price"] != amount:
                 return redirect(url_for("recharge", plate=plate_no, kind=pkg_kind,
                                         msg="支付信息已失效，请重新选择套餐"))
-            result = account.recharge(plate_no, pkg_kind, periods)
+            # v0.4.4：勾了「开通无感支付」就把开关带进充值
+            want_autopay = bool(session.pop("pay_autopay", None))
+            result = account.recharge(plate_no, pkg_kind, periods,
+                                      autopay=want_autopay)
             if not result.get("ok"):
                 return redirect(url_for("recharge", plate=plate_no, kind=pkg_kind,
                                         msg=result.get("msg", "充值失败")))
@@ -538,10 +622,11 @@ def pay_confirm():
                 session.pop(k, None)
             acc = result["account"]
             method_name = next((m["name"] for m in PAY_METHODS if m["id"] == method), "模拟支付")
+            tail = "，已开通无感支付" if want_autopay else ""
             return redirect(url_for(
                 "recharge", plate=plate_no, kind=pkg_kind,
                 ok=f"充值成功 {result['amount']} 元（{method_name}），"
-                   f"余额 {acc['balance']} 元，有效期至 {fmt_date(result['expiresAt'])}"))
+                   f"余额 {acc['balance']} 元，有效期至 {fmt_date(result['expiresAt'])}{tail}"))
 
         else:
             # 停车缴费：后端重算费用（停久了会变，但这里取的是同一笔）
@@ -554,15 +639,41 @@ def pay_confirm():
             real_fee = 0 if (spot.get("channel") or "temp") == "member" else parking.calc_fee(spot["entryTime"])
             if real_fee != amount:
                 return redirect(url_for("index", msg="费用已变化，请重新查询"))
-            result = parking.handle_pay(pending)
+
+            # ---- 优惠券（v0.4.4）----
+            # 优惠码是表单传的，**必须在提交时重新校验**：
+            # GET 渲染之后、POST 提交之前，券可能刚过期 / 刚被领完。
+            # 顺带防止手改表单伪造更大的抵扣额 —— 抵扣额永远以后端算的为准。
+            coupon_code = (request.form.get("coupon") or "").strip().upper()
+            discount = 0
+            if coupon_code:
+                v = coupon.validate(coupon_code, pending, real_fee)
+                if not v.get("ok"):
+                    return redirect(url_for(
+                        "index", msg="优惠码不可用：%s" % v.get("msg", "")))
+                discount = v["discount"]
+
+            method_name = next((m["name"] for m in PAY_METHODS if m["id"] == method), "模拟支付")
+            result = parking.handle_pay(pending, method=method_name,
+                                        discount=discount)
             if not result.get("ok"):
                 return redirect(url_for("index", msg=result.get("msg", "缴费失败")))
+
+            # 缴费成功才核销券 —— 失败的话不能白扣人家的使用次数
+            if coupon_code and discount:
+                coupon.consume(coupon_code, pending, real_fee, discount)
+
             for k in ("pending_fee", "pending_minutes", "pending_channel"):
                 session.pop(k, None)
-            method_name = next((m["name"] for m in PAY_METHODS if m["id"] == method), "模拟支付")
             if result.get("channel") == "member":
                 return redirect(url_for("index", ok_msg="会员车辆出场，车位已释放（本次费用 0 元）"))
-            return redirect(url_for("index", ok_msg=f"缴费成功 {result['fee']} 元（{method_name}），车位已释放"))
+            if discount:
+                return redirect(url_for(
+                    "index",
+                    ok_msg=f"缴费成功 {result['fee']} 元（{method_name}，"
+                           f"优惠码已抵扣 {discount} 元，实收 {result['fee'] - discount} 元），车位已释放"))
+            return redirect(url_for("index",
+                                    ok_msg=f"缴费成功 {result['fee']} 元（{method_name}），车位已释放"))
 
     # ---------------------------------------------------------
     #  GET：显示确认页
@@ -576,6 +687,7 @@ def pay_confirm():
         amount=amount,
         methods=PAY_METHODS,
         method=method,
+        autopay_selected=autopay_selected,
     )
 
 
@@ -722,6 +834,22 @@ def account_delete():
     return redirect(url_for("accounts", ok=f"已删除账户 {result['removed']['plate']}"))
 
 
+@app.route("/accounts/autopay", methods=["POST"])
+def account_autopay():
+    """开通 / 关闭无感支付（v0.4.4）。
+
+    开通后：这辆车出场时费用自动从余额扣（余额够才行），跳过收银台。
+    """
+    raw = (request.form.get("plate") or "").strip()
+    enable = request.form.get("enable") == "1"
+    result = account.set_autopay(raw, enable)
+    if not result.get("ok"):
+        return redirect(url_for("accounts", msg=result.get("msg", "操作失败")))
+    word = "已开通" if enable else "已关闭"
+    return redirect(url_for(
+        "accounts", ok=f"{result['account']['plate']} {word}无感支付"))
+
+
 # ----------------------------------------------------------
 #  充值（v0.2.2）
 # ----------------------------------------------------------
@@ -810,6 +938,8 @@ def recharge_select():
     session["pay_plate"] = plate.normalize(plate_no)
     session["pay_kind"] = kind
     session["pay_periods"] = periods
+    # ★ v0.4.4：充值时可顺带开通无感支付（勾选框）
+    session["pay_autopay"] = request.form.get("autopay") == "1"
 
     return redirect(url_for("pay_confirm", kind="recharge"))
 
@@ -936,6 +1066,161 @@ def remind_contact():
     if not result.get("ok"):
         return redirect(url_for("remind_page", msg=result.get("msg", "保存失败")))
     return redirect(url_for("remind_page", ok="已保存 %s 的联系方式" % result["account"]["plate"]))
+
+
+# ----------------------------------------------------------
+#  优惠券管理（v0.4.4）
+# ----------------------------------------------------------
+# 管理员发券 → 临停缴费时输入优惠码抵扣。
+# 业务逻辑全部在 coupon.py，这里只管表单和跳转。
+
+@app.route("/coupons")
+def coupons_page():
+    """优惠券管理页：发券表单 + 全部券的列表。"""
+    return render_template(
+        "coupons.html",
+        coupons=sorted(coupon.all_coupons(),
+                       key=lambda c: c.get("createdAt", 0), reverse=True),
+        stats=coupon.stats(),
+        msg=request.args.get("msg", ""),
+        ok_msg=request.args.get("ok", ""),
+    )
+
+
+@app.route("/coupons/create", methods=["POST"])
+def coupons_create():
+    """发一张新券。"""
+    result = coupon.create(
+        request.form.get("code") or "",
+        request.form.get("discount") or 0,
+        request.form.get("maxUses") or 1,
+        request.form.get("validDays") or 30,
+    )
+    if not result.get("ok"):
+        return redirect(url_for("coupons_page", msg=result.get("msg", "发券失败")))
+    cp = result["coupon"]
+    return redirect(url_for(
+        "coupons_page",
+        ok=f"已发放优惠码 {cp['code']}（抵 {cp['discount']} 元，"
+           f"限 {cp['maxUses']} 次用）"))
+
+
+@app.route("/coupons/toggle", methods=["POST"])
+def coupons_toggle():
+    """停用 / 恢复一张券。"""
+    code = request.form.get("code") or ""
+    enable = request.form.get("enable") == "1"
+    result = coupon.set_active(code, enable)
+    if not result.get("ok"):
+        return redirect(url_for("coupons_page", msg=result.get("msg", "操作失败")))
+    word = "已恢复" if enable else "已停用"
+    return redirect(url_for("coupons_page", ok=f"优惠码 {code} {word}"))
+
+
+@app.route("/coupons/delete", methods=["POST"])
+def coupons_delete():
+    """删除一张没被用过的券（用过的删不掉，留着对账）。"""
+    code = request.form.get("code") or ""
+    result = coupon.remove(code)
+    if not result.get("ok"):
+        return redirect(url_for("coupons_page", msg=result.get("msg", "删除失败")))
+    return redirect(url_for("coupons_page", ok=f"已删除优惠码 {code}"))
+
+
+# ----------------------------------------------------------
+#  收入报表（v0.4.4）
+# ----------------------------------------------------------
+# 真实停车系统的后台都有对账模块。这里按天分三列：
+#   · 临停收入  —— logs.json 里 type=pay 的流水（fee 是实收，discount 是让利）
+#   · 充值收入 —— recharges.json 里每笔充值的金额
+#   · 优惠让利 —— 缴费流水里 discount 字段的合计
+#
+# ★ 口径说明：临停收入的 fee 记的是**折前金额**，实收 = fee - discount。
+#   报表两列分开摆，总收入按实收算 —— 这是对账的基本要求。
+
+REPORT_DAYS = (7, 30)
+
+
+@app.route("/report")
+def report():
+    """收入报表：按天统计临停收入、充值收入、优惠让利。"""
+    try:
+        days = int(request.args.get("days") or 7)
+    except ValueError:
+        days = 7
+    if days not in REPORT_DAYS:
+        days = 7
+
+    # 按天聚合
+    by_day = {}          # 'YYYY-MM-DD' -> dict
+    today = time.strftime("%Y-%m-%d")
+
+    def bucket(stamp):
+        return by_day.setdefault(stamp, {"parking": 0, "parkingCount": 0,
+                                         "discount": 0, "recharge": 0,
+                                         "rechargeCount": 0})
+
+    for log in store.read_logs():
+        if log.get("type") != "pay":
+            continue
+        stamp = time.strftime("%Y-%m-%d", time.localtime(log.get("time", 0) / 1000))
+        b = bucket(stamp)
+        b["parking"] += int(log.get("fee") or 0)
+        b["parkingCount"] += 1
+        b["discount"] += int(log.get("discount") or 0)
+
+    for r in store.read_recharges():
+        stamp = time.strftime("%Y-%m-%d", time.localtime(r.get("time", 0) / 1000))
+        b = bucket(stamp)
+        b["recharge"] += int(r.get("amount") or 0)
+        b["rechargeCount"] += 1
+
+    # 只取最近 days 天（含今天），旧数据不展示但参与累计
+    rows = []
+    for i in range(days):
+        d = time.strftime("%Y-%m-%d", time.localtime(store.now_ms() / 1000 - i * 86400))
+        b = bucket(d)
+        paid = b["parking"] - b["discount"]          # 临停实收
+        rows.append({
+            "date": d,
+            "isToday": d == today,
+            "parking": b["parking"],
+            "parkingPaid": paid,
+            "parkingCount": b["parkingCount"],
+            "discount": b["discount"],
+            "recharge": b["recharge"],
+            "rechargeCount": b["rechargeCount"],
+            "total": paid + b["recharge"],
+        })
+
+    # 柱状图的缩放基准：区间内最大的单日收入
+    max_total = max([r["total"] for r in rows], default=0)
+
+    # 累计口径（全部历史，不限 days）
+    all_parking = sum(int(l.get("fee") or 0) for l in store.read_logs()
+                      if l.get("type") == "pay")
+    all_discount = sum(int(l.get("discount") or 0) for l in store.read_logs()
+                       if l.get("type") == "pay")
+    all_recharge = sum(int(r.get("amount") or 0) for r in store.read_recharges())
+
+    summary = {
+        "today": rows[0]["total"] if rows else 0,
+        "todayParking": rows[0]["parkingPaid"] if rows else 0,
+        "todayRecharge": rows[0]["recharge"] if rows else 0,
+        "range": sum(r["total"] for r in rows),
+        "allParking": all_parking - all_discount,
+        "allDiscount": all_discount,
+        "allRecharge": all_recharge,
+        "all": (all_parking - all_discount) + all_recharge,
+    }
+
+    return render_template(
+        "report.html",
+        rows=rows,
+        days=days,
+        max_total=max_total,
+        summary=summary,
+    )
 
 
 # ----------------------------------------------------------

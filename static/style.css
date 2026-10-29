@@ -988,3 +988,114 @@ body {
   .mock-banner { padding: 10px 12px; font-size: 12.5px; }
   .mock-item { padding: 12px 13px; }
 }
+
+/* ============================================================
+   v0.4.4 优惠券 / 无感支付 / 收入报表
+   ============================================================ */
+
+/* ---- 无感支付徽标（账户列表） ---- */
+.kind-badge.autopay { background: #e6f1fb; color: #185fa5; }
+
+/* ---- 收银台：优惠码输入行 ---- */
+.coupon-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.coupon-label { font-size: 14px; white-space: nowrap; }
+.coupon-row .input { flex: 1; }
+
+/* ---- 充值页：无感支付勾选框（复用 period 样式的变体） ---- */
+.autopay-option {
+  border-style: dashed;
+  border-color: #b8d4f0;
+  background: #f4f9ff;
+}
+
+/* ---- 报表：区间切换按钮组 ---- */
+.report-range { float: right; }
+.report-range .btn {
+  display: inline-block;
+  padding: 4px 12px;
+  font-size: 13px;
+  margin-left: 6px;
+}
+.report-range .btn-on {
+  background: #185fa5;
+  color: #fff;
+  border-color: #185fa5;
+}
+
+/* ---- 报表：纯 CSS 横向柱状图 ---- */
+.chart { margin: 6px 0 4px; }
+.chart-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.chart-date {
+  width: 92px;
+  flex: none;
+  color: #5a6069;
+  font-variant-numeric: tabular-nums;
+}
+.chart-bar-track {
+  flex: 1;
+  height: 14px;
+  background: #f0f1f3;
+  border-radius: 7px;
+  overflow: hidden;
+}
+.chart-bar {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: linear-gradient(90deg, #2f7ed1, #185fa5);
+  border-radius: 7px;
+}
+.chart-num {
+  width: 76px;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 报表：今天标记 ---- */
+.today-tag {
+  font-style: normal;
+  font-size: 11px;
+  background: #e1f5ee;
+  color: #0f6e56;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 4px;
+}
+.row-today { background: #f4f9ff; }
+
+/* 手机端：图表收窄 */
+@media (max-width: 480px) {
+  .chart-date { width: 78px; font-size: 12px; }
+  .chart-num { width: 64px; font-size: 12px; }
+  .report-range { float: none; display: block; margin-top: 6px; }
+}
+
+/* ---- v0.4.5 口令页：演示口令提示 ---- */
+.pwd-hint {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  font-size: 14px;
+  background: #f4f9ff;
+  border: 1px dashed #b8d4f0;
+  border-radius: 8px;
+  color: #185fa5;
+}
+.pwd-hint code {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 1px;
+  background: none;
+  padding: 0;
+}

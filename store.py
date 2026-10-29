@@ -17,6 +17,7 @@ LOG_FILE = os.path.join(DATA_DIR, "logs.json")
 ACCOUNT_FILE = os.path.join(DATA_DIR, "accounts.json")
 RECHARGE_FILE = os.path.join(DATA_DIR, "recharges.json")
 NOTIFICATION_FILE = os.path.join(DATA_DIR, "notifications.json")
+COUPON_FILE = os.path.join(DATA_DIR, "coupons.json")
 
 
 def _read_list(path):
@@ -127,6 +128,22 @@ def add_notification(entry):
     record.update(entry)
     records.append(record)
     _write_list(NOTIFICATION_FILE, records)
+
+
+# ---------------------------------------------------------
+# 优惠券表（v0.4.4）
+# ---------------------------------------------------------
+# 管理员发放的折扣码。使用记录（谁用的、抵了多少）记在券的
+# usedBy 字段里 —— 券被用过就不能删，留着对账。
+
+def read_coupons():
+    """读所有优惠券。"""
+    return _read_list(COUPON_FILE)
+
+
+def write_coupons(data):
+    """写所有优惠券。"""
+    _write_list(COUPON_FILE, data)
 
 
 def now_ms():

@@ -7,7 +7,15 @@
 [![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**当前版本：v0.4**（公网部署 + 微信小程序）
+**当前版本：v0.4.5**（本地口令与公网一致 + 登录后回原页面）
+
+> v0.4.5 修复：本地双击 启动.bat 时 `ACCESS_PWD` / `ADMIN_PWD` 只认环境变量，
+> 导致没配口令时管理端被静默关闭——访问 `/admin`、`/accounts`、`/remind`
+> 被一声不吭弹回车主端（浏览器标签全显示「车主端」）。
+> 现在口令优先级与公网部署一致：**环境变量 > 项目根的
+> `access-pwd.txt` / `admin-pwd.txt` > 空**，本地和公网用同一套口令。
+> 另外口令页登录成功后会回到你本来要去的页面（带 `next` 参数），
+> 不再一律甩到首页。想在本地关掉口令：设环境变量 `ACCESS_PWD=""` 即可。
 
 | 页面 | 地址 |
 |---|---|
@@ -16,6 +24,9 @@
 | **充值** | `http://localhost:3000/recharge` |
 | 账户管理 | `http://localhost:3000/accounts` |
 | **催缴管理** | `http://localhost:3000/remind` |
+| **优惠券** | `http://localhost:3000/coupons`（管理端） |
+| **收入报表** | `http://localhost:3000/report`（管理端） |
+| **模拟清单** | `http://localhost:3000/mocks`（管理端） |
 | 管理后台 | `http://localhost:3000/admin` |
 
 > 📱 **手机访问**：启动后车主端页脚会显示本机局域网地址（如 `http://192.168.1.5:3000`），
@@ -374,6 +385,49 @@ def _read_list(path):
 
 ---
 
+## 特色九：优惠券 / 无感支付 / 收入报表（v0.4.4）
+
+对标市面商业停车系统（捷顺、科拓、ETC 无感支付）补齐的三块商业能力。
+
+### 优惠券：发券 → 输码 → 抵扣 → 对账
+
+```
+管理员发券（/coupons）──→ data/coupons.json
+        ↓
+车主在收银台输入优惠码
+        ↓
+后端重新校验：存在？没停用？没过期？没用完？这辆车没用过？
+        ↓
+抵扣（不超过停车费本身）→ 核销留痕（谁用的、抵了多少）
+```
+
+校验规则和支付金额一样：**前端传的都不算数，提交时后端重查一遍**。
+GET 渲染之后券可能刚好过期、刚被领完，所以 POST 必须重新校验。
+被用过的券禁止删除 —— 使用记录要留着对账。
+
+### 无感支付：余额够就自动扣款放行
+
+充值时可勾选开通（账户管理页也能开关）。开通后出场的分流：
+
+```
+出场算钱
+  ├─ 费用 0（免费时段/会员）→ 直接放行，不进收银台
+  ├─ 开了无感支付 且 余额够 → 自动扣款放行（跳过收银台）
+  └─ 其余 → 模拟收银台人工确认
+```
+
+典型场景：会员过期进入宽限期的车，入场按临停计费，
+出场时余额够就直接扣，这就是真实系统里「免密扣款、出场秒抬杆」的体验。
+★ 顺序不能反：先扣款再 `handle_pay` —— 放行时临时账号会被删掉，删完就没地方扣了。
+
+### 收入报表：按天对账
+
+`/report` 按天分列四组数字：临停折前、优惠让利、临停实收、充值收入。
+实收 = 折前 − 让利 + 充值。缴费流水新增 `method`（支付方式）和 `discount`（抵扣）
+两个字段，报表纯读流水，不含业务逻辑。柱状图是纯 CSS 横条，延续了零 JavaScript 的约束。
+
+---
+
 ## 项目结构
 
 ```
@@ -381,23 +435,31 @@ def _read_list(path):
 ├── app.py              # Flask 服务：路由 + 表单处理 + 模板过滤器
 ├── parking.py          # ★ 业务逻辑层（核心）
 ├── plate.py            # 车牌归一化与校验
-├── account.py          # ★ 账户模块 + 套餐 + 充值 + 催缴档位 + 宽限期
+├── account.py          # ★ 账户模块 + 套餐 + 充值 + 催缴档位 + 宽限期 + 无感支付
+├── coupon.py           # ★ 优惠券：发券 + 校验 + 核销（v0.4.4）
+├── mocks.py            # 模拟功能登记表（每处假的东西 + 替换方案）
 ├── remind.py           # ★ 催缴业务：扫描 + 发送 + 去重
 ├── notify.py           # ★ 通知渠道抽象（短信 / 微信，当前模拟发送）
 ├── store.py            # 数据读写层
 ├── templates/
 │   ├── index.html      #   车主端
 │   ├── scan.html       #   扫码入场
-│   ├── recharge.html   #   充值
-│   ├── accounts.html   #   账户管理
+│   ├── recharge.html   #   充值（可顺带开通无感支付）
+│   ├── pay_confirm.html#   模拟收银台（支持优惠码抵扣）
+│   ├── accounts.html   #   账户管理（含无感支付开关）
+│   ├── coupons.html    #   优惠券管理（v0.4.4）
+│   ├── report.html     #   收入报表（v0.4.4）
 │   ├── remind.html     #   催缴管理
+│   ├── mocks.html      #   模拟功能清单
+│   ├── _mock.html      #   模拟标注宏（角标 / 说明卡 / 横幅）
 │   ├── admin.html      #   管理后台
 │   └── error.html      #   404 页
 ├── static/
 │   └── style.css       # 纯 CSS（响应式 + Grid 布局）
 ├── data/               # 运行时生成的数据文件（gitignore）
 ├── tools/
-│   ├── selftest.py     # 340 项自动化自检
+│   ├── selftest.py     # 476 项自动化自检
+│   ├── test_v042.py    # 59 项端到端回归（权限 / 支付确认页）
 │   ├── launcher.src.txt # 启动器源文件（UTF-8）
 │   └── convert_launcher.ps1  # 转码成 GBK 的 启动.bat
 ├── miniprogram/        # 微信小程序（原生）
@@ -414,7 +476,7 @@ def _read_list(path):
 | 层 | 文件 | 职责 |
 |---|---|---|
 | 数据层 | `store.py` | 只读写文件，不含业务逻辑 |
-| 业务层 | `parking.py` + `plate.py` + `account.py` + `remind.py` | 纯逻辑，不碰 HTTP |
+| 业务层 | `parking.py` + `plate.py` + `account.py` + `coupon.py` + `remind.py` | 纯逻辑，不碰 HTTP |
 | 通知层 | `notify.py` | 渠道抽象，隔离「怎么发出去」 |
 | 表现层 | `app.py` + `templates/` | 收请求、调逻辑、渲染页面 |
 

@@ -82,7 +82,7 @@
         <thead>
           <tr>
             <th>车牌</th><th>类型</th><th>车主</th><th>联系方式</th><th>余额</th>
-            <th>有效期</th><th>备注</th><th>操作</th>
+            <th>有效期</th><th>备注</th><th>无感支付</th><th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -114,6 +114,24 @@
                 {% endif %}
               </td>
               <td data-label="备注">{{ acc.note or '—' }}</td>
+              <td data-label="无感支付">
+                {% if acc.kind == 'temporary' %}
+                <span class="kind-badge temp">—</span>
+                {% elif acc.autopay %}
+                <span class="kind-badge autopay">已开通</span>
+                {% else %}
+                <span class="kind-badge temp">未开通</span>
+                {% endif %}
+                {% if acc.kind != 'temporary' %}
+                <form method="post" action="{{ url_for('account_autopay') }}">
+                  <input type="hidden" name="plate" value="{{ acc.plate }}">
+                  <input type="hidden" name="enable" value="{{ '0' if acc.autopay else '1' }}">
+                  <button class="btn" type="submit">
+                    {{ '关闭' if acc.autopay else '开通' }}
+                  </button>
+                </form>
+                {% endif %}
+              </td>
               <td class="actions" data-label="操作">
                 {% if acc.kind != 'temporary' %}
                 <form method="post" action="{{ url_for('account_toggle') }}">
@@ -134,7 +152,7 @@
             </tr>
             {% endfor %}
           {% else %}
-            <tr><td colspan="8" class="tip">还没有账户</td></tr>
+            <tr><td colspan="9" class="tip">还没有账户</td></tr>
           {% endif %}
         </tbody>
       </table>
